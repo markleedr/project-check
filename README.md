@@ -20,7 +20,7 @@ First-touch UTM on the marketing enquiry beats a later sales “walk-in” tag.
 
 ## Stack
 
-Vite + React + TypeScript, Tailwind, Supabase (`zymomxrjcxxkpfjuyktv`, region `ap-northeast-2`).
+Vite + React + TypeScript, Tailwind, Supabase (`kuucdtwfneakjbvquecq`, region `ap-southeast-2` / Sydney).
 
 ## Dev
 
