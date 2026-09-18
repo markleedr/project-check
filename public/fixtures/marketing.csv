@@ -1,0 +1,4 @@
+First name,Last name,Email,Phone,Postcode,UTM Source,UTM Campaign,Enquiry date
+Jane,Citizen,jane@example.com,0412 345 678,4000,facebook,solaw-reg,2026-01-10
+Sam,Buyer,sam@example.com,0413 111 222,4217,google,solaw-search,2026-01-12
+Alex,Offline,alex@example.com,0499 000 111,4558,,,2026-01-15
