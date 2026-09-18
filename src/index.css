@@ -1,0 +1,219 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Brand Guidelines: Off-white background #FCFCFB */
+    --background: 60 10% 98.8%;
+    --foreground: 220 12% 9%; /* #131518 - Near black */
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 12% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 12% 9%;
+
+    /* Brand Guidelines: Yellow accent #FCC317 */
+    --primary: 45 97% 54%;
+    --primary-foreground: 220 12% 9%; /* Dark text on yellow */
+
+    --secondary: 220 6% 92%; /* #E9EAEC - Light grey */
+    --secondary-foreground: 220 12% 9%;
+
+    --muted: 220 6% 92%; /* #E9EAEC */
+    --muted-foreground: 216 5% 37%; /* #595E65 - Slate grey */
+
+    --accent: 45 97% 54%; /* #FCC317 */
+    --accent-foreground: 220 12% 9%;
+
+    /* Status colors from brand guidelines */
+    --success: 142 71% 45%; /* #22C55E - Green */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 45 97% 54%; /* Yellow */
+    --warning-foreground: 220 12% 9%;
+
+    --destructive: 0 84% 60%; /* #EF4444 - Red */
+    --destructive-foreground: 0 0% 100%;
+
+    --pending: 33 100% 50%;
+    --pending-foreground: 0 0% 100%;
+
+    --approved: 142 71% 45%; /* #22C55E */
+    --approved-foreground: 0 0% 100%;
+
+    --revision: 0 84% 60%; /* #EF4444 */
+    --revision-foreground: 0 0% 100%;
+
+    --updated: 217 91% 60%; /* #3B82F6 - Blue */
+    --updated-foreground: 0 0% 100%;
+
+    --border: 220 6% 92%; /* #E9EAEC - Light grey borders */
+    --input: 220 6% 92%;
+    --ring: 45 97% 54%; /* Yellow ring */
+
+    --radius: 0.5rem;
+
+    /* Info / Link color from brand guidelines */
+    --info: 217 91% 60%; /* #3B82F6 - Blue */
+    --info-foreground: 0 0% 100%;
+
+    /* Soft Highlight Background from brand guidelines */
+    --highlight: 45 100% 92%; /* #FFF6D6 - Warm tint */
+
+    /* Platform colors */
+    --facebook: 220 46% 48%;
+    --instagram: 340 75% 54%;
+    --linkedin: 201 100% 35%;
+    --google: 217 89% 61%;
+
+    /* Sidebar - Always dark per brand guidelines */
+    --sidebar-background: 220 12% 9%;
+    --sidebar-foreground: 60 10% 98.8%;
+    --sidebar-primary: 45 97% 54%;
+    --sidebar-primary-foreground: 220 12% 9%;
+    --sidebar-accent: 220 10% 15%;
+    --sidebar-accent-foreground: 60 10% 98.8%;
+    --sidebar-border: 220 10% 15%;
+    --sidebar-ring: 45 97% 54%;
+  }
+
+  .dark {
+    --background: 220 12% 9%; /* #131518 */
+    --foreground: 60 10% 98.8%; /* #FCFCFB */
+
+    --card: 220 10% 12%;
+    --card-foreground: 60 10% 98.8%;
+
+    --popover: 220 10% 12%;
+    --popover-foreground: 60 10% 98.8%;
+
+    --primary: 45 97% 54%; /* #FCC317 */
+    --primary-foreground: 220 12% 9%;
+
+    --secondary: 220 10% 20%;
+    --secondary-foreground: 60 10% 98.8%;
+
+    --muted: 220 10% 20%;
+    --muted-foreground: 216 5% 55%;
+
+    --accent: 45 97% 54%;
+    --accent-foreground: 220 12% 9%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 45 97% 54%;
+    --warning-foreground: 220 12% 9%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --pending: 33 100% 50%;
+    --pending-foreground: 0 0% 100%;
+
+    --approved: 142 71% 45%;
+    --approved-foreground: 0 0% 100%;
+
+    --revision: 0 84% 60%;
+    --revision-foreground: 0 0% 100%;
+
+    --updated: 217 91% 60%;
+    --updated-foreground: 0 0% 100%;
+
+    --border: 220 10% 20%;
+    --input: 220 10% 20%;
+    --ring: 45 97% 54%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --highlight: 45 50% 15%;
+
+    --facebook: 220 46% 48%;
+    --instagram: 340 75% 54%;
+    --linkedin: 201 100% 35%;
+    --google: 217 89% 61%;
+
+    /* Sidebar - Dark mode as per brand guidelines */
+    --sidebar-background: 220 12% 6%;
+    --sidebar-foreground: 60 10% 98.8%;
+    --sidebar-primary: 45 97% 54%;
+    --sidebar-primary-foreground: 220 12% 9%;
+    --sidebar-accent: 220 10% 15%;
+    --sidebar-accent-foreground: 60 10% 98.8%;
+    --sidebar-border: 220 10% 15%;
+    --sidebar-ring: 45 97% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer components {
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-pending {
+    @apply bg-pending/20 text-pending-foreground;
+  }
+
+  .status-approved {
+    @apply bg-approved/20 text-approved;
+  }
+
+  .status-revision {
+    @apply bg-revision/20 text-revision;
+  }
+
+  .status-updated {
+    @apply bg-updated/20 text-updated;
+  }
+
+  .card-elevated {
+    @apply bg-card rounded-xl border shadow-sm;
+  }
+
+  /* Insight banner from brand guidelines */
+  .insight-banner {
+    @apply bg-[hsl(var(--highlight))] rounded-lg p-4 border border-[hsl(45,97%,54%,0.2)];
+  }
+
+  .platform-facebook {
+    @apply text-[hsl(var(--facebook))];
+  }
+
+  .platform-instagram {
+    @apply text-[hsl(var(--instagram))];
+  }
+
+  .platform-linkedin {
+    @apply text-[hsl(var(--linkedin))];
+  }
+
+  .platform-google {
+    @apply text-[hsl(var(--google))];
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
