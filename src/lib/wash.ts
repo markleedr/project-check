@@ -1,4 +1,5 @@
 import { ColumnRole, FileKind, PII_ROLES } from './columns';
+import { firstFilledDate, funnelFromStatus, isWonContract } from './funnel';
 import { hashEmail, hashPhoneDigits } from './hash';
 import { phoneJoinDigits } from './phone';
 
@@ -81,10 +82,19 @@ function parseCount(raw: string | null): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function isContractStatus(status: string | null, contractDate: string | null): boolean {
-  if (contractDate) return true;
-  if (!status) return false;
-  return /sold|contract|purchased|unconditional|settled/i.test(status);
+function mappingHasRole(mapping: Record<string, ColumnRole>, role: ColumnRole): boolean {
+  return Object.values(mapping).includes(role);
+}
+
+/** Ads Manager puts a blank-campaign totals row above the campaigns. Counting it double-counts spend. */
+export function isSummarySpendRow(
+  record: Record<string, string>,
+  mapping: Record<string, ColumnRole>,
+): boolean {
+  if (!mappingHasRole(mapping, 'campaign') && !mappingHasRole(mapping, 'adName')) return false;
+  const campaign = cell(record, mapping, 'campaign');
+  const adName = cell(record, mapping, 'adName');
+  return !campaign && !adName;
 }
 
 function firstTouchSource(utmSource: string | null, utmMedium: string | null, utmCampaign: string | null, fallback: string | null): string | null {
@@ -167,7 +177,18 @@ export async function washRecords(
         skippedNoJoinKey += 1;
         continue;
       }
-      const contractDate = cell(rec, mapping, 'contractDate');
+      const status = cell(rec, mapping, 'status');
+      const stages = funnelFromStatus(status);
+      const fallbackDate = firstFilledDate(
+        cell(rec, mapping, 'lastContacted'),
+        cell(rec, mapping, 'enquiryDate'),
+      );
+      const visitDate = firstFilledDate(cell(rec, mapping, 'visitDate'), stages.visit ? fallbackDate : null);
+      const eoiDate = firstFilledDate(cell(rec, mapping, 'eoiDate'), stages.eoi ? fallbackDate : null);
+      const contractDate = firstFilledDate(
+        cell(rec, mapping, 'contractDate'),
+        stages.contract ? fallbackDate : null,
+      );
       sales.push({
         token,
         emailToken,
@@ -175,11 +196,11 @@ export async function washRecords(
         postcode: cell(rec, mapping, 'postcode'),
         suburb: cell(rec, mapping, 'suburb'),
         enquiryDate: cell(rec, mapping, 'enquiryDate'),
-        visitDate: cell(rec, mapping, 'visitDate'),
-        eoiDate: cell(rec, mapping, 'eoiDate'),
+        visitDate,
+        eoiDate,
         contractDate,
-        salesSourceTag: cell(rec, mapping, 'source'),
-        isContract: isContractStatus(cell(rec, mapping, 'status'), contractDate),
+        salesSourceTag: cell(rec, mapping, 'source') ?? status,
+        isContract: isWonContract(status, contractDate),
       });
     }
     return {
@@ -194,16 +215,19 @@ export async function washRecords(
   }
 
   if (kind === 'spend') {
-    const spend: WashedSpend[] = records.map((rec) => ({
-      campaign: cell(rec, mapping, 'campaign') ?? cell(rec, mapping, 'utmCampaign'),
-      source:
-        cell(rec, mapping, 'utmSource') ??
-        cell(rec, mapping, 'platform') ??
-        opts?.defaultPlatform ??
-        null,
-      amount: parseMoney(cell(rec, mapping, 'spend')),
-      date: cell(rec, mapping, 'date'),
-    }));
+    const spend: WashedSpend[] = records
+      .filter((rec) => !isSummarySpendRow(rec, mapping))
+      .map((rec) => ({
+        campaign: cell(rec, mapping, 'campaign') ?? cell(rec, mapping, 'utmCampaign'),
+        source:
+          cell(rec, mapping, 'utmSource') ??
+          cell(rec, mapping, 'platform') ??
+          opts?.defaultPlatform ??
+          null,
+        amount: parseMoney(cell(rec, mapping, 'spend')),
+        date: cell(rec, mapping, 'date'),
+      }))
+      .filter((row) => row.amount > 0);
     return {
       kind,
       droppedColumns,
@@ -215,17 +239,19 @@ export async function washRecords(
     };
   }
 
-  const ads: WashedAd[] = records.map((rec) => ({
-    platform: cell(rec, mapping, 'platform') ?? opts?.defaultPlatform ?? null,
-    campaign: cell(rec, mapping, 'campaign'),
-    adset: cell(rec, mapping, 'adset'),
-    adName: cell(rec, mapping, 'adName'),
-    spend: parseMoney(cell(rec, mapping, 'spend')),
-    impressions: parseCount(cell(rec, mapping, 'impressions')),
-    clicks: parseCount(cell(rec, mapping, 'clicks')),
-    results: parseCount(cell(rec, mapping, 'results')),
-    date: cell(rec, mapping, 'date'),
-  }));
+  const ads: WashedAd[] = records
+    .filter((rec) => !isSummarySpendRow(rec, mapping))
+    .map((rec) => ({
+      platform: cell(rec, mapping, 'platform') ?? opts?.defaultPlatform ?? null,
+      campaign: cell(rec, mapping, 'campaign'),
+      adset: cell(rec, mapping, 'adset'),
+      adName: cell(rec, mapping, 'adName'),
+      spend: parseMoney(cell(rec, mapping, 'spend')),
+      impressions: parseCount(cell(rec, mapping, 'impressions')),
+      clicks: parseCount(cell(rec, mapping, 'clicks')),
+      results: parseCount(cell(rec, mapping, 'results')),
+      date: cell(rec, mapping, 'date'),
+    }));
   return {
     kind,
     droppedColumns,

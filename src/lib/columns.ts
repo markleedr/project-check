@@ -20,6 +20,7 @@ export type ColumnRole =
   | 'source'
   | 'status'
   | 'crmId'
+  | 'lastContacted'
   | 'spend'
   | 'campaign'
   | 'adset'
@@ -53,6 +54,7 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
   source: 'Source / how they heard',
   status: 'Status',
   crmId: 'CRM / record ID',
+  lastContacted: 'Last contacted',
   spend: 'Spend',
   campaign: 'Campaign name',
   adset: 'Ad set',
@@ -68,7 +70,7 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
 /** Roles a marketing manager must confirm. Everything else stays behind “show all columns”. */
 export const IMPORTANT_ROLES: Record<FileKind, ColumnRole[]> = {
   marketing: ['phone', 'email', 'enquiryDate', 'utmSource', 'utmMedium', 'utmCampaign', 'source', 'postcode'],
-  sales: ['phone', 'email', 'contractDate', 'visitDate', 'eoiDate', 'enquiryDate', 'postcode'],
+  sales: ['phone', 'email', 'contractDate', 'visitDate', 'eoiDate', 'enquiryDate', 'status', 'postcode'],
   spend: ['spend', 'campaign', 'date', 'platform'],
   ads: ['adName', 'spend', 'results', 'campaign', 'adset', 'platform'],
 };
@@ -88,15 +90,15 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
   email: {
     exact: ['email', 'emailaddress', 'e-mail'],
     contains: ['email'],
-    exclude: ['type', 'optout'],
+    exclude: ['type', 'optout', 'assignee', 'owner', 'agent', 'mailchimp'],
   },
   firstName: {
-    exact: ['firstname', 'first', 'givenname'],
+    exact: ['firstname', 'first', 'givenname', 'fname'],
     contains: ['firstname', 'givenname'],
     exclude: [],
   },
   lastName: {
-    exact: ['lastname', 'surname', 'lastname'],
+    exact: ['lastname', 'surname', 'lname'],
     contains: ['lastname', 'surname', 'familyname'],
     exclude: [],
   },
@@ -121,9 +123,9 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
     exclude: [],
   },
   enquiryDate: {
-    exact: ['enquirydate', 'inquirydate', 'leaddate', 'createdat', 'datecreated'],
+    exact: ['enquirydate', 'inquirydate', 'leaddate', 'createdat', 'datecreated', 'date'],
     contains: ['enquir', 'inquir', 'created', 'lead date'],
-    exclude: ['contract', 'eoi', 'visit', 'modified'],
+    exclude: ['contract', 'eoi', 'visit', 'modified', 'complete', 'due', 'start', 'reporting'],
   },
   visitDate: {
     exact: ['visitdate', 'inspectiondate', 'sitedate', 'sitevisit', 'sitevisitdate'],
@@ -143,17 +145,17 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
   utmSource: {
     exact: ['utmsource', 'source'],
     contains: ['utm_source', 'utmsource'],
-    exclude: [],
+    exclude: ['alt', 'assignee'],
   },
   utmMedium: {
-    exact: ['utmmedium'],
+    exact: ['utmmedium', 'medium'],
     contains: ['utm_medium', 'utmmedium'],
     exclude: [],
   },
   utmCampaign: {
-    exact: ['utmcampaign'],
+    exact: ['utmcampaign', 'campaign'],
     contains: ['utm_campaign', 'utmcampaign'],
-    exclude: [],
+    exclude: ['delivery', 'id', 'status'],
   },
   utmContent: {
     exact: ['utmcontent'],
@@ -161,14 +163,19 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
     exclude: [],
   },
   source: {
-    exact: ['source', 'enquirysource', 'leadsource', 'howdidyouhear', 'channel'],
-    contains: ['leadsource', 'enquirysource', 'hear', 'walkin', 'walk-in'],
-    exclude: ['utm'],
+    exact: ['source', 'enquirysource', 'leadsource', 'howdidyouhear', 'channel', 'sourcealt'],
+    contains: ['leadsource', 'enquirysource', 'source alt', 'hear', 'walkin', 'walk-in'],
+    exclude: ['utm', 'assignee'],
   },
   status: {
-    exact: ['status', 'stage', 'pipeline'],
-    contains: ['status', 'stage'],
-    exclude: ['utm'],
+    exact: ['status', 'stage', 'pipeline', 'pipelineactions'],
+    contains: ['pipeline', 'stage'],
+    exclude: ['utm', 'mailchimp', 'project'],
+  },
+  lastContacted: {
+    exact: ['lastcontacted', 'lastcontact'],
+    contains: ['last contact', 'lastcontacted'],
+    exclude: [],
   },
   crmId: {
     exact: ['id', 'crmid', 'recordid', 'contactid', 'leadid'],
@@ -256,7 +263,7 @@ export function suggestRole(header: string, kind: FileKind): ColumnRole {
 export function allowedRoles(kind: FileKind): ColumnRole[] {
   const people: ColumnRole[] = [
     'phone', 'email', 'firstName', 'lastName', 'name', 'address', 'postcode', 'suburb',
-    'enquiryDate', 'visitDate', 'eoiDate', 'contractDate', 'utmSource', 'utmMedium',
+    'enquiryDate', 'visitDate', 'eoiDate', 'contractDate', 'lastContacted', 'utmSource', 'utmMedium',
     'utmCampaign', 'utmContent', 'source', 'status', 'crmId', 'ignore',
   ];
   if (kind === 'marketing' || kind === 'sales') return people;
@@ -264,13 +271,25 @@ export function allowedRoles(kind: FileKind): ColumnRole[] {
 }
 
 export function suggestMapping(headers: string[], kind: FileKind): Record<string, ColumnRole> {
-  const used = new Set<ColumnRole>();
-  const map: Record<string, ColumnRole> = {};
-  for (const h of headers) {
-    let role = suggestRole(h, kind);
-    if (role !== 'ignore' && used.has(role)) role = 'ignore';
-    if (role !== 'ignore') used.add(role);
-    map[h] = role;
+  const allowed = allowedRoles(kind).filter((role) => role !== 'ignore');
+  const scored: { header: string; role: ColumnRole; score: number; index: number }[] = [];
+  headers.forEach((header, index) => {
+    for (const role of allowed) {
+      const spec = SPECS[role];
+      if (!spec) continue;
+      const s = score(header, spec);
+      if (s > 0) scored.push({ header, role, score: s, index });
+    }
+  });
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  const map: Record<string, ColumnRole> = Object.fromEntries(headers.map((h) => [h, 'ignore' as ColumnRole]));
+  const usedRole = new Set<ColumnRole>();
+  const usedHeader = new Set<string>();
+  for (const row of scored) {
+    if (usedRole.has(row.role) || usedHeader.has(row.header)) continue;
+    map[row.header] = row.role;
+    usedRole.add(row.role);
+    usedHeader.add(row.header);
   }
   return map;
 }
@@ -302,9 +321,15 @@ export function mappingWarnings(mapping: Record<string, ColumnRole>, kind: FileK
     if (!used.has('postcode')) warnings.push('Map postcode if you have it, or we cannot say where buyers live.');
   }
   if (kind === 'sales') {
-    if (!used.has('contractDate')) warnings.push('Map contract date or we cannot count sales.');
-    if (!used.has('visitDate')) warnings.push('Map site visit date if you have it — it is the leading indicator we measure.');
-    if (!used.has('eoiDate')) warnings.push('Map EOI date if you have it.');
+    if (!used.has('status') && !used.has('contractDate')) {
+      warnings.push('Map contract date or the sales pipeline stage, or we cannot count sales.');
+    }
+    if (!used.has('status') && !used.has('visitDate')) {
+      warnings.push('Map site visit date or a pipeline stage such as site tour.');
+    }
+    if (!used.has('status') && !used.has('eoiDate')) {
+      warnings.push('Map EOI date or an EOI pipeline stage.');
+    }
   }
   if (kind === 'spend' && !used.has('spend')) {
     warnings.push('Map the spend column or this file will not add any money.');
