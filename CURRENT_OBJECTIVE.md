@@ -3,26 +3,25 @@ Locked: 2026-09-19
 
 ## Objective
 
-Implement the busy-manager UX audit in full: a four-step check (development → people files → spend → optional ads → review), outcome + export copy on each upload, compact column mapping, Excel accepted, spend double-count blocked, same development reused, report leads with actions then funnel then next dollar then the five questions.
+Fix the RVLV live check: pipeline stages (site tour / EOI / contract / Settled) must drive the funnel, DATE and extra source columns on the leads file must map, Ads Manager total rows must be skipped, Meta spend must show against Facebook/social sources, and `google_search` in a postcode column must not be treated as a postcode.
 
 ## Done when
 
-- [ ] New check is a short wizard, not one long page of equal-weight uploads
-- [ ] Each upload states what you get, how to get the file, and what you lose if you skip
-- [ ] Column mapping shows only the columns that matter unless they open the full list
-- [ ] Excel (.xlsx) uploads work; CSV still works
-- [ ] Unified spend plus platform spend cannot be submitted together
-- [ ] A second check on the same development name stays on that project
-- [ ] On-screen report and print PDF share the same order: actions, funnel, next dollar, questions, needs testing
-- [ ] Tests and production build pass
+- [ ] Asana-style `Pipeline actions` maps to status, not Mailchimp Status
+- [ ] `site tour` counts as a site visit, EOI stages as EOI, `Settled` / `contract signed` as a contract; `contract crashed` does not
+- [ ] Leads `DATE` maps as enquiry date; `medium`, `campaign` and `Source alt` map
+- [ ] Buyer `Email` wins over `Assignee Email`
+- [ ] Meta campaign export total row is not added twice
+- [ ] Meta spend appears on Facebook/social channels; Google spend still appears on Google/search
+- [ ] Non-numeric postcodes are ignored
+- [ ] Tests cover the cases above; production build passes
 
 ## Explicitly out of scope
 
 - Live Meta/Google/CRM connections
-- Rich personas beyond basic CRM columns
-- Dashboard they live in all week (PDF is v1)
-- AppSwitcher URLs on the other eight products
+- Parsing EOI/contract out of Asana subtask *names* when the parent has no pipeline stage
+- Dashboard / CRM sync
 
 ## Environment note
 
-No staging — one Supabase project, one branch. A push to `main` deploys the live site.
+No staging — a push to `main` deploys live.
