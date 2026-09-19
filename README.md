@@ -10,7 +10,11 @@ Five questions, one PDF:
 4. Who is buying?
 5. Where do buyers live?
 
-A sale is a **contract signed**. Enquiry and EOI are leading indicators.
+A sale is a **contract signed**. Enquiry, site visit and EOI are leading indicators.
+
+The check is four steps: name the development, upload enquiries and sales, add spend (one number is enough), optionally add ad-level files. Column mapping shows only the fields that change the report. Excel is accepted.
+
+## Trust
 
 ## Trust
 

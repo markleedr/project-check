@@ -1,17 +1,20 @@
 # Current Objective — Project Check (`markleedr/project-check`)
-Locked: 2026-09-18
+Locked: 2026-09-19
 
 ## Objective
 
-Ship v1 of Project Check: a self-serve mid-campaign checker for a developer marketing manager. File uploads only. One development per project. Output is a PDF answering five questions in plain language, with actions and a “needs testing” list.
+Implement the busy-manager UX audit in full: a four-step check (development → people files → spend → optional ads → review), outcome + export copy on each upload, compact column mapping, Excel accepted, spend double-count blocked, same development reused, report leads with actions then funnel then next dollar then the five questions.
 
 ## Done when
 
-- [x] Wash/hash/join/aggregate with tests (UTM wins walk-in; no PII in washed rows)
-- [x] Upload wizard: map columns, wash on device, preview, download CSV, phone spot-check, send washed JSON only
-- [x] Supabase schema + RLS for projects/checks
-- [ ] Auth + new-check + PDF path verified in the browser
-- [ ] `generate-commentary` deployed (falls back if no Anthropic key)
+- [ ] New check is a short wizard, not one long page of equal-weight uploads
+- [ ] Each upload states what you get, how to get the file, and what you lose if you skip
+- [ ] Column mapping shows only the columns that matter unless they open the full list
+- [ ] Excel (.xlsx) uploads work; CSV still works
+- [ ] Unified spend plus platform spend cannot be submitted together
+- [ ] A second check on the same development name stays on that project
+- [ ] On-screen report and print PDF share the same order: actions, funnel, next dollar, questions, needs testing
+- [ ] Tests and production build pass
 
 ## Explicitly out of scope
 
@@ -19,4 +22,7 @@ Ship v1 of Project Check: a self-serve mid-campaign checker for a developer mark
 - Rich personas beyond basic CRM columns
 - Dashboard they live in all week (PDF is v1)
 - AppSwitcher URLs on the other eight products
-- Moving Supabase from ap-northeast-2 to Sydney
+
+## Environment note
+
+No staging — one Supabase project, one branch. A push to `main` deploys the live site.
