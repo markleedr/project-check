@@ -35,7 +35,11 @@ export function fallbackCommentary(projectName: string, figures: ReportFigures):
         findings:
           figures.timing.medianDaysEnquiryToContract == null
             ? 'Enquiry date or contract date is missing, so time to buy cannot be shown.'
-            : `Median time from enquiry to contract is ${figures.timing.medianDaysEnquiryToContract} days (${figures.timing.sampleSize} contracts).`,
+            : `Median time from enquiry to contract is ${figures.timing.medianDaysEnquiryToContract} days (${figures.timing.sampleSize} contracts). ${figures.siteVisitCount} sales rows have a site visit date${
+                figures.timing.medianDaysEnquiryToVisit != null
+                  ? `, median ${figures.timing.medianDaysEnquiryToVisit} days from enquiry to visit`
+                  : ''
+              }.`,
         adsCommentary: null,
       },
       {

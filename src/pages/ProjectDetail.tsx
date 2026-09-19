@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import Layout from '@/components/Layout';
+import { Button } from '@/components/ui/button';
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -30,7 +31,12 @@ export default function ProjectDetail() {
 
   return (
     <Layout>
-      <h1 className="text-2xl font-semibold">{project?.name ?? 'Project'}</h1>
+      <div className="flex items-start justify-between gap-4">
+        <h1 className="text-2xl font-semibold">{project?.name ?? 'Development'}</h1>
+        <Button asChild>
+          <Link to={`/new?project=${id}`}>Run another check</Link>
+        </Button>
+      </div>
       <div className="mt-6 space-y-3">
         {checks.map((c) => (
           <Link key={c.id} to={`/checks/${c.id}`} className="block rounded-xl border bg-card p-4 hover:border-primary">

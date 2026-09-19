@@ -40,7 +40,7 @@ export default function Auth() {
         <div>
           <h1 className="text-2xl font-semibold">Project Check</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Upload washed campaign files. We never store names, emails, phones or street addresses.
+            See where the next dollar should go. We strip names on your computer before anything is stored.
           </p>
         </div>
         <form onSubmit={submit} className="space-y-4">

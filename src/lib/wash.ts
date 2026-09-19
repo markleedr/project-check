@@ -4,6 +4,7 @@ import { phoneJoinDigits } from './phone';
 
 export interface WashedEnquiry {
   token: string;
+  emailToken: string | null;
   crmId: string | null;
   postcode: string | null;
   suburb: string | null;
@@ -17,6 +18,7 @@ export interface WashedEnquiry {
 
 export interface WashedSale {
   token: string;
+  emailToken: string | null;
   crmId: string | null;
   postcode: string | null;
   suburb: string | null;
@@ -92,13 +94,16 @@ function firstTouchSource(utmSource: string | null, utmMedium: string | null, ut
   return fallback;
 }
 
-async function tokenFor(record: Record<string, string>, mapping: Record<string, ColumnRole>): Promise<string | null> {
+async function tokensFor(
+  record: Record<string, string>,
+  mapping: Record<string, ColumnRole>,
+): Promise<{ token: string | null; emailToken: string | null }> {
   const phone = cell(record, mapping, 'phone');
   const digits = phoneJoinDigits(phone);
-  if (digits) return hashPhoneDigits(digits);
+  const phoneToken = digits ? await hashPhoneDigits(digits) : null;
   const email = cell(record, mapping, 'email');
-  if (email) return hashEmail(email);
-  return null;
+  const emailToken = email ? await hashEmail(email) : null;
+  return { token: phoneToken ?? emailToken, emailToken };
 }
 
 export function columnsDropped(headers: string[], mapping: Record<string, ColumnRole>): string[] {
@@ -114,6 +119,7 @@ export async function washRecords(
   records: Record<string, string>[],
   mapping: Record<string, ColumnRole>,
   headers: string[],
+  opts?: { defaultPlatform?: string },
 ): Promise<WashResult> {
   const droppedColumns = columnsDropped(headers, mapping);
   const keptColumns = columnsKept(headers, mapping);
@@ -122,7 +128,7 @@ export async function washRecords(
   if (kind === 'marketing') {
     const enquiries: WashedEnquiry[] = [];
     for (const rec of records) {
-      const token = await tokenFor(rec, mapping);
+      const { token, emailToken } = await tokensFor(rec, mapping);
       if (!token) {
         skippedNoJoinKey += 1;
         continue;
@@ -130,6 +136,7 @@ export async function washRecords(
       const utmSource = cell(rec, mapping, 'utmSource');
       enquiries.push({
         token,
+        emailToken,
         crmId: cell(rec, mapping, 'crmId'),
         postcode: cell(rec, mapping, 'postcode'),
         suburb: cell(rec, mapping, 'suburb'),
@@ -155,7 +162,7 @@ export async function washRecords(
   if (kind === 'sales') {
     const sales: WashedSale[] = [];
     for (const rec of records) {
-      const token = await tokenFor(rec, mapping);
+      const { token, emailToken } = await tokensFor(rec, mapping);
       if (!token) {
         skippedNoJoinKey += 1;
         continue;
@@ -163,6 +170,7 @@ export async function washRecords(
       const contractDate = cell(rec, mapping, 'contractDate');
       sales.push({
         token,
+        emailToken,
         crmId: cell(rec, mapping, 'crmId'),
         postcode: cell(rec, mapping, 'postcode'),
         suburb: cell(rec, mapping, 'suburb'),
@@ -188,7 +196,11 @@ export async function washRecords(
   if (kind === 'spend') {
     const spend: WashedSpend[] = records.map((rec) => ({
       campaign: cell(rec, mapping, 'campaign') ?? cell(rec, mapping, 'utmCampaign'),
-      source: cell(rec, mapping, 'utmSource') ?? cell(rec, mapping, 'platform'),
+      source:
+        cell(rec, mapping, 'utmSource') ??
+        cell(rec, mapping, 'platform') ??
+        opts?.defaultPlatform ??
+        null,
       amount: parseMoney(cell(rec, mapping, 'spend')),
       date: cell(rec, mapping, 'date'),
     }));
@@ -204,7 +216,7 @@ export async function washRecords(
   }
 
   const ads: WashedAd[] = records.map((rec) => ({
-    platform: cell(rec, mapping, 'platform'),
+    platform: cell(rec, mapping, 'platform') ?? opts?.defaultPlatform ?? null,
     campaign: cell(rec, mapping, 'campaign'),
     adset: cell(rec, mapping, 'adset'),
     adName: cell(rec, mapping, 'adName'),
