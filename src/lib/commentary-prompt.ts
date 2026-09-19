@@ -26,7 +26,10 @@ Product rules that override the skill where they clash:
 - Offline is a sales row with no matching marketing enquiry. Those tags can be lumped if they are messy.
 - The CRM is basic. Do not invent personas, income, or motivations.
 - Findings must be restatements of the figures. If it is not in the JSON, it goes in needsTesting.
+- For "What is delivering sales?", name up to three sources, ranked by contracts then enquiries. Include spend and cost per contract when those figures exist. Do not stop at the first source.
+- For "Where do buyers live?", name the top postcodes from figures.postcodes. The product draws the table and map from those rows; do not invent suburbs or coordinates.
 - Actions are allowed, but only in the actions array, and only if the figures support them. Do not hide recommendations inside findings.
+- Spend direction belongs in actions (keep, investigate, do not fund). Do not treat the channel results table as spend advice.
 - The skill's "no guidance" rule applies to findings and ads commentary, not to the actions array.
 
 Return JSON only with this shape:
@@ -44,7 +47,7 @@ Return JSON only with this shape:
   "needsTesting": string[]
 }
 
-adsCommentary is only for the why question, and only when ads[] is non-empty. Follow the skill's ad set / creative paragraph style using the ads rows. If ads are empty, adsCommentary is null and findings say the export was not in this run.
+For the why question, write two or three sentences only: cheapest cost per result, most results, most expensive. Do not list every ad in prose; the product draws a table from ads[]. adsCommentary is always null.
 `;
 
 export function commentaryUserPayload(input: {

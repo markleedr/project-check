@@ -1,22 +1,10 @@
+import { whyFindings } from './ads-findings';
 import { suggestedActions, type ReportFigures } from './aggregate';
 import type { ReportCommentary } from './report-spec';
+import { locationFindings, salesFindings } from './sales-findings';
 
 export function fallbackCommentary(projectName: string, figures: ReportFigures): ReportCommentary {
   const actions = suggestedActions(figures);
-  const top = figures.channels[0];
-  const why =
-    figures.ads.length === 0
-      ? 'No ads export was in this run, so campaign and creative performance is not shown.'
-      : figures.ads
-          .slice()
-          .sort((a, b) => b.spend - a.spend)
-          .slice(0, 5)
-          .map((a) => {
-            const name = a.adName || a.adset || a.campaign || 'Untitled';
-            const cpr = a.costPerResult != null ? `$${Math.round(a.costPerResult)} per result` : 'no result count';
-            return `${name}: spend $${Math.round(a.spend)}, ${a.results} results, ${cpr}.`;
-          })
-          .join(' ');
 
   return {
     intro: `${projectName}: ${figures.contractCount} contracts from ${figures.enquiryCount} marketing enquiries. Spend in this upload is $${Math.round(figures.spendTotal)}.`,
@@ -24,9 +12,7 @@ export function fallbackCommentary(projectName: string, figures: ReportFigures):
       {
         id: 'sales',
         title: 'What is delivering sales?',
-        findings: top
-          ? `${top.source} is first-touch on ${top.contracts} of ${figures.contractCount} contracts, from ${top.enquiries} enquiries. ${figures.salesTagsOverridden} contracts had a later sales tag (often walk-in) that was ignored.`
-          : 'No contracts were in the sales file, so channel mix for sales cannot be shown.',
+        findings: salesFindings(figures),
         adsCommentary: null,
       },
       {
@@ -45,8 +31,8 @@ export function fallbackCommentary(projectName: string, figures: ReportFigures):
       {
         id: 'why',
         title: 'Why is the marketing working?',
-        findings: why,
-        adsCommentary: figures.ads.length ? why : null,
+        findings: whyFindings(figures),
+        adsCommentary: null,
       },
       {
         id: 'who',
@@ -58,9 +44,7 @@ export function fallbackCommentary(projectName: string, figures: ReportFigures):
       {
         id: 'where',
         title: 'Where do buyers live?',
-        findings: figures.postcodes[0]
-          ? `Highest contract count is postcode ${figures.postcodes[0].postcode} (${figures.postcodes[0].contracts} contracts).`
-          : 'No postcodes were in the wash.',
+        findings: locationFindings(figures),
         adsCommentary: null,
       },
     ],

@@ -1,3 +1,7 @@
+export const CHECK_REPORT_YELLOW = '#FFD600';
+export const CHECK_REPORT_INK = '#1A1A1A';
+export const CHECK_REPORT_FONT = 'Montserrat';
+
 export const QUESTIONS = [
   {
     id: 'sales' as const,

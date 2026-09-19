@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { buildFigures, funnelMeaning, nextDollarMeaning, suggestedActions } from './aggregate';
+import { rankedAds, whyFindings } from './ads-findings';
+import { buildFigures, funnelMeaning, nextDollarDirection, spendDirectionActions, suggestedActions } from './aggregate';
+import { fallbackCommentary } from './commentary-fallback';
+import { locationTableRows, mapDots, postcodeCentroid, projectLatLng } from './geo/project';
+import { locationFindings, salesFindings, topSalesChannels } from './sales-findings';
 import { hashPhoneDigits } from './hash';
 import { joinSalesToEnquiries } from './join';
 import { phoneJoinDigits } from './phone';
@@ -253,9 +257,160 @@ describe('report lead-ins', () => {
       ads: [],
     });
     expect(funnelMeaning(figures)).toMatch(/not converting|not in this file/i);
-    expect(nextDollarMeaning(figures)).toMatch(/next dollar/i);
+    expect(nextDollarDirection(figures)).toMatch(/next dollar/i);
   });
 });
+
+describe('sales findings name three sources', () => {
+  it('comments on first, second and third by contracts then enquiries', () => {
+    const figures = buildFigures({
+      enquiries: [
+        enquiry('a', 'facebook', '4000'),
+        enquiry('b', 'google', '4000'),
+        enquiry('c', 'google', '4217'),
+        enquiry('d', 'linkedin', '4217'),
+        enquiry('e', 'offline', '4670'),
+      ],
+      sales: [
+        sale('a', true, '4000'),
+        sale('b', true, '4000'),
+        sale('c', true, '4217'),
+        sale('d', true, '4217'),
+      ],
+      spend: [
+        { campaign: 'm', source: 'facebook', amount: 2000, date: null },
+        { campaign: 'g', source: 'google', amount: 6000, date: null },
+        { campaign: 'l', source: 'linkedin', amount: 1000, date: null },
+      ],
+      ads: [],
+    });
+    const top = topSalesChannels(figures, 3);
+    expect(top.map((c) => c.source)).toEqual(['google', 'facebook', 'linkedin']);
+    const text = salesFindings(figures);
+    expect(text).toMatch(/^First: google/);
+    expect(text).toMatch(/Second: facebook/);
+    expect(text).toMatch(/Third: linkedin/);
+    expect(text).toMatch(/Cost per contract/);
+    expect(fallbackCommentary('RVLV', figures).questions.find((q) => q.id === 'sales')?.findings).toBe(text);
+  });
+});
+
+describe('next dollar vs results table', () => {
+  it('directs spend and calls out a high-spend source with no contracts', () => {
+    const figures = buildFigures({
+      enquiries: [enquiry('a', 'facebook', '4000'), enquiry('b', 'google', '4000')],
+      sales: [sale('a', true, '4000')],
+      spend: [
+        { campaign: 'm', source: 'facebook', amount: 1000, date: null },
+        { campaign: 'g', source: 'google', amount: 9000, date: null },
+      ],
+      ads: [],
+    });
+    const direction = spendDirectionActions(figures).join(' ');
+    expect(direction).toMatch(/Keep or increase activity on facebook/i);
+    expect(direction).toMatch(/Do not fund google/i);
+    expect(direction).not.toMatch(/^facebook is first-touch/i);
+    expect(nextDollarDirection(figures)).toBe(direction);
+  });
+});
+
+describe('buyer locations table and map', () => {
+  it('shows up to ten postcodes and plots real AU centroids', () => {
+    const enquiries = Array.from({ length: 12 }, (_, i) =>
+      enquiry(String(i), 'facebook', String(4000 + i)),
+    );
+    const sales = [0, 1, 2, 3, 4].map((i) => sale(String(i), true, String(4000 + i)));
+    const figures = buildFigures({ enquiries, sales, spend: [], ads: [] });
+    const rows = locationTableRows(figures.postcodes, 10);
+    expect(rows.length).toBe(10);
+    expect(rows[0].postcode).toBe('4000');
+    expect(locationFindings(figures)).toMatch(/4000/);
+    expect(locationFindings(figures)).not.toMatch(/Highest contract count is postcode 4000 \(/);
+
+    const bris = postcodeCentroid('4000');
+    const perth = postcodeCentroid('6000');
+    const hobart = postcodeCentroid('7000');
+    expect(bris).not.toBeNull();
+    expect(perth).not.toBeNull();
+    expect(hobart).not.toBeNull();
+    const b = projectLatLng(bris!.lat, bris!.lng);
+    const p = projectLatLng(perth!.lat, perth!.lng);
+    const h = projectLatLng(hobart!.lat, hobart!.lng);
+    expect(p.x).toBeLessThan(b.x);
+    expect(h.y).toBeGreaterThan(b.y);
+
+    const dots = mapDots(figures.postcodes, 10);
+    expect(dots.length).toBeGreaterThan(0);
+    expect(dots.every((d) => d.postcode !== '9999')).toBe(true);
+    const unknown = mapDots([{ postcode: '0001', enquiries: 4, contracts: 2 }], 10);
+    expect(unknown).toEqual([]);
+  });
+});
+
+describe('why ads are a ranked table not a run-on list', () => {
+  it('names cheapest, volume and expensive once and tags continue vs investigate', () => {
+    const figures = buildFigures({
+      enquiries: [enquiry('a', 'facebook', '4000')],
+      sales: [sale('a', true, '4000')],
+      spend: [],
+      ads: [
+        { platform: 'meta', campaign: 'LEAD', adset: 'a', adName: 'BROCHURE - homes', spend: 29210, results: 1845, impressions: 0, clicks: 0, date: null },
+        { platform: 'meta', campaign: 'LEAD', adset: 'a', adName: 'LEAD_AD1', spend: 8779, results: 366, impressions: 0, clicks: 0, date: null },
+        { platform: 'meta', campaign: 'LEAD', adset: 'a', adName: 'AD3', spend: 7602, results: 95, impressions: 0, clicks: 0, date: null },
+        { platform: 'meta', campaign: 'RET', adset: 'a', adName: 'RETARGETING_AD1', spend: 7005, results: 509, impressions: 0, clicks: 0, date: null },
+        { platform: 'meta', campaign: 'LEAD', adset: 'b', adName: 'AD3', spend: 6875, results: 208, impressions: 0, clicks: 0, date: null },
+        { platform: 'meta', campaign: 'LEAD', adset: 'a', adName: 'BROCHURE - homes', spend: 29210, results: 1845, impressions: 0, clicks: 0, date: null },
+      ],
+    });
+    const text = whyFindings(figures);
+    expect(text).toMatch(/RETARGETING_AD1 is the cheapest/);
+    expect(text).toMatch(/BROCHURE - homes delivered the most results/);
+    expect(text).toMatch(/AD3 is the most expensive/);
+    expect(text).not.toMatch(/spend \$29210/);
+    expect((text.match(/BROCHURE/g) || []).length).toBe(1);
+
+    const rows = rankedAds(figures, 8);
+    expect(rows[0].name).toBe('RETARGETING_AD1');
+    expect(rows[0].read).toBe('Continue');
+    expect(rows.some((r) => r.read === 'Investigate' && r.name === 'AD3')).toBe(true);
+    expect(rows.filter((r) => r.name === 'BROCHURE - homes').length).toBe(1);
+    expect(rows.filter((r) => r.name === 'AD3').length).toBe(2);
+    expect(rows.find((r) => r.name === 'AD3' && r.detail)?.detail).toBeTruthy();
+    expect(fallbackCommentary('RVLV', figures).questions.find((q) => q.id === 'why')?.adsCommentary).toBeNull();
+  });
+});
+
+function enquiry(token: string, source: string, postcode: string) {
+  return {
+    token,
+    emailToken: null,
+    crmId: null,
+    postcode,
+    suburb: null,
+    enquiryDate: '2026-01-01',
+    utmSource: source,
+    utmMedium: null,
+    utmCampaign: null,
+    utmContent: null,
+    source,
+  };
+}
+
+function sale(token: string, isContract: boolean, postcode: string) {
+  return {
+    token,
+    emailToken: null,
+    crmId: null,
+    postcode,
+    suburb: null,
+    enquiryDate: '2026-01-01',
+    visitDate: '2026-01-10',
+    eoiDate: null,
+    contractDate: isContract ? '2026-02-01' : null,
+    salesSourceTag: null,
+    isContract,
+  };
+}
 
 describe('excel and names', () => {
   it('reads the first sheet of an xlsx workbook', async () => {
