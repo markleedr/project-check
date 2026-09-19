@@ -265,19 +265,40 @@ function postcodeMix(enquiries: WashedEnquiry[], contracts: JoinedBuyer[]): Post
   return [...map.values()].sort((a, b) => b.contracts - a.contracts || b.enquiries - a.enquiries);
 }
 
-export function suggestedActions(figures: ReportFigures): string[] {
+/** Spend advice only. The channel table is results, not this list. */
+export function spendDirectionActions(figures: ReportFigures): string[] {
   const actions: string[] = [];
   const withContracts = figures.channels.filter((c) => c.contracts > 0);
   const best = withContracts[0];
   if (best) {
-    actions.push(`Keep or increase activity on ${best.source}: it accounts for ${best.contracts} of ${figures.contractCount} contracts.`);
+    actions.push(
+      `Keep or increase activity on ${best.source}: it accounts for ${best.contracts} of ${figures.contractCount} contracts.`,
+    );
   }
   const expensive = figures.channels
     .filter((c) => c.costPerContract != null && c.contracts > 0)
     .sort((a, b) => (b.costPerContract ?? 0) - (a.costPerContract ?? 0))[0];
   if (expensive && best && expensive.source !== best.source) {
-    actions.push(`Investigate ${expensive.source}: highest cost per contract in this upload ($${Math.round(expensive.costPerContract ?? 0)}).`);
+    actions.push(
+      `Investigate ${expensive.source}: highest cost per contract in this upload ($${Math.round(expensive.costPerContract ?? 0)}).`,
+    );
   }
+  const unfunded = figures.channels
+    .filter((c) => c.spend > 0 && c.contracts === 0)
+    .sort((a, b) => b.spend - a.spend)[0];
+  if (unfunded) {
+    actions.push(
+      `Do not fund ${unfunded.source} from this file: $${Math.round(unfunded.spend).toLocaleString()} spent with no contracts.`,
+    );
+  }
+  if (actions.length === 0) {
+    actions.push('No contracts matched a source, so we cannot say where the next dollar should go.');
+  }
+  return actions;
+}
+
+export function suggestedActions(figures: ReportFigures): string[] {
+  const actions: string[] = [...spendDirectionActions(figures)];
   if (figures.salesTagsOverridden > 0) {
     actions.push(
       `Do not brief from sales walk-in tags alone. ${figures.salesTagsOverridden} contracts were tagged walk-in or similar after a digital enquiry.`,
@@ -292,8 +313,8 @@ export function suggestedActions(figures: ReportFigures): string[] {
   if (topGeo) {
     actions.push(`Prioritise ${topGeo.postcode}: it has the most contracts in this upload.`);
   }
-  if (actions.length === 0) {
-    actions.push('Upload marketing enquiries, sales (with contracts) and spend so the five questions have numbers behind them.');
+  if (actions.length === 1 && actions[0].startsWith('No contracts matched')) {
+    return ['Upload marketing enquiries, sales (with contracts) and spend so the five questions have numbers behind them.'];
   }
   return actions.slice(0, 5);
 }
@@ -324,20 +345,12 @@ export function funnelMeaning(figures: ReportFigures): string {
   return 'Enquiries, visits and contracts are all present. Use time-to-buy to plan follow-up.';
 }
 
+/** Imperative spend direction, not a restatement of the results table. */
+export function nextDollarDirection(figures: ReportFigures): string {
+  return spendDirectionActions(figures).join(' ');
+}
+
+/** @deprecated Use nextDollarDirection. Kept so older imports still type-check. */
 export function nextDollarMeaning(figures: ReportFigures): string {
-  const top = figures.channels.find((c) => c.contracts > 0);
-  if (!top) {
-    return 'No contracts matched a source, so we cannot say where the next dollar should go.';
-  }
-  const cost =
-    top.costPerContract != null
-      ? ` Cost per contract on that source is $${Math.round(top.costPerContract).toLocaleString()}.`
-      : figures.spendTotal === 0
-        ? ' Add spend next time to see cost per contract.'
-        : '';
-  const walkin =
-    figures.salesTagsOverridden > 0
-      ? ` ${figures.salesTagsOverridden} contracts were later tagged walk-in on the sales file; the first digital source was kept.`
-      : '';
-  return `${top.source} is first-touch on ${top.contracts} of ${figures.contractCount} contracts.${cost}${walkin}`;
+  return nextDollarDirection(figures);
 }
