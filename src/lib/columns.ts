@@ -34,23 +34,23 @@ export type ColumnRole =
 export const PII_ROLES: ColumnRole[] = ['phone', 'email', 'firstName', 'lastName', 'name', 'address'];
 
 export const ROLE_LABELS: Record<ColumnRole, string> = {
-  phone: 'Phone (hashed, then dropped)',
-  email: 'Email (hashed, then dropped)',
-  firstName: 'First name (dropped)',
-  lastName: 'Last name (dropped)',
-  name: 'Name (dropped)',
-  address: 'Street address (dropped)',
+  phone: 'Phone (match, then removed)',
+  email: 'Email (match, then removed)',
+  firstName: 'First name (removed)',
+  lastName: 'Last name (removed)',
+  name: 'Name (removed)',
+  address: 'Street address (removed)',
   postcode: 'Postcode',
   suburb: 'Suburb',
   enquiryDate: 'Enquiry date',
   visitDate: 'Site visit date',
   eoiDate: 'EOI date',
   contractDate: 'Contract date',
-  utmSource: 'UTM source',
+  utmSource: 'Where they came from (UTM source)',
   utmMedium: 'UTM medium',
-  utmCampaign: 'UTM campaign',
+  utmCampaign: 'Campaign name in the link (UTM)',
   utmContent: 'UTM content',
-  source: 'Source / enquiry type',
+  source: 'Source / how they heard',
   status: 'Status',
   crmId: 'CRM / record ID',
   spend: 'Spend',
@@ -63,6 +63,14 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
   platform: 'Platform',
   date: 'Date',
   ignore: 'Do not use',
+};
+
+/** Roles a marketing manager must confirm. Everything else stays behind “show all columns”. */
+export const IMPORTANT_ROLES: Record<FileKind, ColumnRole[]> = {
+  marketing: ['phone', 'email', 'enquiryDate', 'utmSource', 'utmMedium', 'utmCampaign', 'source', 'postcode'],
+  sales: ['phone', 'email', 'contractDate', 'visitDate', 'eoiDate', 'enquiryDate', 'postcode'],
+  spend: ['spend', 'campaign', 'date', 'platform'],
+  ads: ['adName', 'spend', 'results', 'campaign', 'adset', 'platform'],
 };
 
 interface Spec {
@@ -118,9 +126,9 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
     exclude: ['contract', 'eoi', 'visit', 'modified'],
   },
   visitDate: {
-    exact: ['visitdate', 'inspectiondate', 'sitedate'],
-    contains: ['visit', 'inspection', 'onsite'],
-    exclude: [],
+    exact: ['visitdate', 'inspectiondate', 'sitedate', 'sitevisit', 'sitevisitdate'],
+    contains: ['site visit', 'sitevisit', 'visit', 'inspection', 'onsite'],
+    exclude: ['website'],
   },
   eoiDate: {
     exact: ['eoidate', 'reservationdate'],
@@ -265,4 +273,46 @@ export function suggestMapping(headers: string[], kind: FileKind): Record<string
     map[h] = role;
   }
   return map;
+}
+
+export function headersToReview(
+  headers: string[],
+  mapping: Record<string, ColumnRole>,
+  kind: FileKind,
+  showAll: boolean,
+): string[] {
+  if (showAll) return headers;
+  const important = new Set(IMPORTANT_ROLES[kind]);
+  return headers.filter((h) => important.has(mapping[h]));
+}
+
+export function mappingWarnings(mapping: Record<string, ColumnRole>, kind: FileKind): string[] {
+  const used = new Set(Object.values(mapping));
+  const warnings: string[] = [];
+  if (kind === 'marketing' || kind === 'sales') {
+    if (!used.has('phone') && !used.has('email')) {
+      warnings.push('Map a phone or email column so we can match this list to the other one.');
+    }
+  }
+  if (kind === 'marketing') {
+    if (!used.has('enquiryDate')) warnings.push('Map enquiry date so we can time the funnel.');
+    if (!used.has('utmSource') && !used.has('source')) {
+      warnings.push('Map where they came from (source or UTM) so we know what is delivering sales.');
+    }
+    if (!used.has('postcode')) warnings.push('Map postcode if you have it, or we cannot say where buyers live.');
+  }
+  if (kind === 'sales') {
+    if (!used.has('contractDate')) warnings.push('Map contract date or we cannot count sales.');
+    if (!used.has('visitDate')) warnings.push('Map site visit date if you have it — it is the leading indicator we measure.');
+    if (!used.has('eoiDate')) warnings.push('Map EOI date if you have it.');
+  }
+  if (kind === 'spend' && !used.has('spend')) {
+    warnings.push('Map the spend column or this file will not add any money.');
+  }
+  if (kind === 'ads') {
+    if (!used.has('adName')) warnings.push('Map ad name so we can say which ads to keep.');
+    if (!used.has('spend')) warnings.push('Map spend on the ads file.');
+    if (!used.has('results')) warnings.push('Map results or leads so we can see cost per result.');
+  }
+  return warnings;
 }
