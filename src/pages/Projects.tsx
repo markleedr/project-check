@@ -18,19 +18,28 @@ export default function Projects() {
     <Layout>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Projects</h1>
+          <h1 className="text-2xl font-semibold">Developments</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             One development at a time. Mid-campaign: where does the next dollar go?
           </p>
         </div>
         <Button asChild>
-          <Link to="/new">New check</Link>
+          <Link to="/new">Start a check</Link>
         </Button>
       </div>
       <div className="mt-8 space-y-3">
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {!isLoading && projects.length === 0 && (
-          <p className="text-sm text-muted-foreground">No projects yet. Start a check and name the development.</p>
+          <div className="max-w-lg rounded-xl border bg-card p-5 text-sm space-y-3">
+            <p>You have not run a check yet.</p>
+            <p className="text-muted-foreground">
+              You will need the marketing enquiry list and the sales file for one development. Spend is optional but
+              needed for cost per contract.
+            </p>
+            <Button asChild>
+              <Link to="/new">Start a check</Link>
+            </Button>
+          </div>
         )}
         {projects.map((p) => (
           <Link
