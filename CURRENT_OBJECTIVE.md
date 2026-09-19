@@ -3,24 +3,29 @@ Locked: 2026-09-19
 
 ## Objective
 
-Fix the RVLV live check: pipeline stages (site tour / EOI / contract / Settled) must drive the funnel, DATE and extra source columns on the leads file must map, Ads Manager total rows must be skipped, Meta spend must show against Facebook/social sources, and `google_search` in a postcode column must not be treated as a postcode.
+After the RVLV mapping/funnel/spend fix, four report notes:
+
+1. “Where the next dollar should go” is confusing because the table is results, not spend direction. Heading and copy must match what is on the page.
+2. “What is delivering sales” only names one source — comment on the next two as well (contracts first, then enquiries; include spend / cost per contract when we have it).
+3. “Where do buyers live” should show the top 5–10 locations as a table and a map with dots at real Australian postcode locations (no PII, no fake jitter).
+4. Save PDF must follow the Project Profile letterhead (yellow `#FFD600`, Montserrat, A4) as in the SPC weekly media report sample and the Ad Proof SMS sheet.
+5. “Why is the marketing working?” must not dump ads as a repeated run-on sentence. Short finding plus a ranked table (continue / investigate).
 
 ## Done when
 
-- [ ] Asana-style `Pipeline actions` maps to status, not Mailchimp Status
-- [ ] `site tour` counts as a site visit, EOI stages as EOI, `Settled` / `contract signed` as a contract; `contract crashed` does not
-- [ ] Leads `DATE` maps as enquiry date; `medium`, `campaign` and `Source alt` map
-- [ ] Buyer `Email` wins over `Assignee Email`
-- [ ] Meta campaign export total row is not added twice
-- [ ] Meta spend appears on Facebook/social channels; Google spend still appears on Google/search
-- [ ] Non-numeric postcodes are ignored
-- [ ] Tests cover the cases above; production build passes
+- [ ] Next-dollar block is spend direction (`suggestedActions`); the channel table is captioned as results, not spend advice
+- [ ] Sales findings name the top three sources, not one
+- [ ] Buyer locations: table of top 5–10 postcodes (enquiries, contracts) plus an SVG map with dots at real AU postcode centroids
+- [ ] Print/PDF uses PP A4 letterhead, yellow rule, formatted tables; `@page { size: A4; margin: 0 }`
+- [ ] Why section: short finding + ads table, no duplicated paragraph
+- [ ] Tests cover salesFindings (three sources), next-dollar vs results table, postcode table 5–10, map projection, ads ranking; production build passes
 
 ## Explicitly out of scope
 
 - Live Meta/Google/CRM connections
-- Parsing EOI/contract out of Asana subtask *names* when the parent has no pipeline stage
-- Dashboard / CRM sync
+- Parsing EOI/contract out of Asana subtask names
+- Inventing buyer personas
+- Storing raw PII
 
 ## Environment note
 
