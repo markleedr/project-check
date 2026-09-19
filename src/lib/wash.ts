@@ -274,7 +274,7 @@ export function washedToCsv(result: WashResult): string {
   const headers = Object.keys(rows[0] as object);
   const escape = (v: unknown) => {
     const s = v == null ? '' : String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}\u0022`;
     return s;
   };
   return [headers.join(','), ...rows.map((r) => headers.map((h) => escape((r as Record<string, unknown>)[h])).join(','))].join('\n');
