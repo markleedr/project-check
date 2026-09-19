@@ -41,6 +41,7 @@ export interface ReportFigures {
   enquiryCount: number;
   salesContactedCount: number;
   contractCount: number;
+  siteVisitCount: number;
   eoiCount: number;
   unmatchedSales: number;
   salesTagsOverridden: number;
@@ -97,6 +98,7 @@ export function buildFigures(input: {
   const joined = joinSalesToEnquiries(input.enquiries, input.sales);
   const contracts = joined.filter((j) => j.sale.isContract);
   const eoiCount = joined.filter((j) => Boolean(j.sale.eoiDate)).length;
+  const siteVisitCount = input.sales.filter((s) => Boolean(s.visitDate)).length;
 
   const enquiryBySource = new Map<string, number>();
   for (const e of input.enquiries) {
@@ -174,6 +176,7 @@ export function buildFigures(input: {
     enquiryCount: input.enquiries.length,
     salesContactedCount: input.sales.length,
     contractCount: contracts.length,
+    siteVisitCount,
     eoiCount,
     unmatchedSales: joined.filter((j) => j.attributionKind !== 'digital_first_touch').length,
     salesTagsOverridden: contracts.filter((c) => c.salesTagOverridden).length,
@@ -266,4 +269,48 @@ export function suggestedActions(figures: ReportFigures): string[] {
     actions.push('Upload marketing enquiries, sales (with contracts) and spend so the five questions have numbers behind them.');
   }
   return actions.slice(0, 5);
+}
+
+/** One line a marketing manager can read before the five questions. */
+export function funnelMeaning(figures: ReportFigures): string {
+  const { enquiryCount, siteVisitCount, contractCount } = figures;
+  if (enquiryCount === 0) {
+    return 'No enquiries in the marketing file, so the funnel cannot be read.';
+  }
+  if (siteVisitCount === 0 && contractCount === 0) {
+    return 'People are enquiring, but there are no site visits or contracts in the sales file. Check those dates were mapped, or that sales follow-up is happening.';
+  }
+  if (siteVisitCount > 0 && contractCount === 0) {
+    return 'Site visits are happening; contracts are not in this file. Either contract dates were not mapped, or visits are not converting.';
+  }
+  if (siteVisitCount === 0 && contractCount > 0) {
+    return 'Contracts are in the file but site visit dates are missing, so we cannot see the middle of the funnel.';
+  }
+  const visitRate = siteVisitCount / enquiryCount;
+  const closeRate = contractCount / Math.max(siteVisitCount, 1);
+  if (visitRate < 0.05) {
+    return 'Few enquiries are making it to site. Getting people to the display suite needs work.';
+  }
+  if (closeRate < 0.1) {
+    return 'Visits look healthier than contracts. Sales conversion after the visit is the squeeze.';
+  }
+  return 'Enquiries, visits and contracts are all present. Use time-to-buy to plan follow-up.';
+}
+
+export function nextDollarMeaning(figures: ReportFigures): string {
+  const top = figures.channels.find((c) => c.contracts > 0);
+  if (!top) {
+    return 'No contracts matched a source, so we cannot say where the next dollar should go.';
+  }
+  const cost =
+    top.costPerContract != null
+      ? ` Cost per contract on that source is $${Math.round(top.costPerContract).toLocaleString()}.`
+      : figures.spendTotal === 0
+        ? ' Add spend next time to see cost per contract.'
+        : '';
+  const walkin =
+    figures.salesTagsOverridden > 0
+      ? ` ${figures.salesTagsOverridden} contracts were later tagged walk-in on the sales file; the first digital source was kept.`
+      : '';
+  return `${top.source} is first-touch on ${top.contracts} of ${figures.contractCount} contracts.${cost}${walkin}`;
 }
