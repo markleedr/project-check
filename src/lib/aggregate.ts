@@ -1,4 +1,5 @@
 import { joinSalesToEnquiries, type JoinedBuyer } from './join';
+import { advertisingPlatform, spendPlatformKey } from './spend-platform';
 import type { WashedAd, WashedEnquiry, WashedSale, WashedSpend } from './wash';
 
 export interface ChannelRow {
@@ -77,15 +78,34 @@ function normaliseSource(s: string): string {
   return s.trim() || 'unknown';
 }
 
-function spendForSource(spend: WashedSpend[], source: string): number {
+function spendByPlatform(spend: WashedSpend[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const row of spend) {
+    const platform = spendPlatformKey(row);
+    if (!platform) continue;
+    map.set(platform, (map.get(platform) ?? 0) + row.amount);
+  }
+  return map;
+}
+
+function spendForSource(
+  source: string,
+  enquiriesForSource: number,
+  enquiryBySource: Map<string, number>,
+  platformSpend: Map<string, number>,
+): number {
   const n = source.toLowerCase();
-  return spend
-    .filter((row) => {
-      const blob = `${row.source ?? ''} ${row.campaign ?? ''}`.toLowerCase();
-      if (n === 'offline' || n === 'walk-in' || n === 'walk in') return false;
-      return blob.includes(n) || n.includes((row.source ?? '').toLowerCase());
-    })
-    .reduce((sum, row) => sum + row.amount, 0);
+  if (n === 'offline' || n === 'walk-in' || n === 'walk in' || n === 'unknown') return 0;
+  const platform = advertisingPlatform(source);
+  if (!platform) return 0;
+  const pool = platformSpend.get(platform) ?? 0;
+  if (pool <= 0) return 0;
+  let siblingEnquiries = 0;
+  for (const [other, count] of enquiryBySource) {
+    if (advertisingPlatform(other) === platform) siblingEnquiries += count;
+  }
+  if (siblingEnquiries <= 0) return 0;
+  return (pool * enquiriesForSource) / siblingEnquiries;
 }
 
 export function buildFigures(input: {
@@ -117,14 +137,16 @@ export function buildFigures(input: {
 
   const sources = new Set([...enquiryBySource.keys(), ...contractBySource.keys()]);
   const spendTotal = input.spend.reduce((s, r) => s + r.amount, 0);
+  const platformSpend = spendByPlatform(input.spend);
 
   const channels: ChannelRow[] = [...sources]
     .map((source) => {
       const contractsN = contractBySource.get(source)?.n ?? 0;
-      const spend = spendForSource(input.spend, source);
+      const enquiries = enquiryBySource.get(source) ?? 0;
+      const spend = spendForSource(source, enquiries, enquiryBySource, platformSpend);
       return {
         source,
-        enquiries: enquiryBySource.get(source) ?? 0,
+        enquiries,
         contracts: contractsN,
         spend,
         costPerContract: contractsN > 0 && spend > 0 ? spend / contractsN : null,
@@ -225,10 +247,15 @@ function timingFrom(contracts: JoinedBuyer[]): TimingStats {
   };
 }
 
+function looksLikePostcode(value: string | null): boolean {
+  return Boolean(value && /^\d{3,4}$/.test(value.trim()));
+}
+
 function postcodeMix(enquiries: WashedEnquiry[], contracts: JoinedBuyer[]): PostcodeRow[] {
   const map = new Map<string, PostcodeRow>();
   const bump = (postcode: string | null, field: 'enquiries' | 'contracts') => {
-    const key = (postcode || 'unknown').trim() || 'unknown';
+    if (!looksLikePostcode(postcode)) return;
+    const key = postcode!.trim();
     const row = map.get(key) ?? { postcode: key, enquiries: 0, contracts: 0 };
     row[field] += 1;
     map.set(key, row);
@@ -261,7 +288,7 @@ export function suggestedActions(figures: ReportFigures): string[] {
       `Plan nurture for about ${Math.round(figures.timing.medianDaysEnquiryToContract)} days from enquiry to contract, based on this file.`,
     );
   }
-  const topGeo = figures.postcodes.find((p) => p.postcode !== 'unknown');
+  const topGeo = figures.postcodes.find((p) => p.contracts > 0);
   if (topGeo) {
     actions.push(`Prioritise ${topGeo.postcode}: it has the most contracts in this upload.`);
   }
@@ -278,7 +305,7 @@ export function funnelMeaning(figures: ReportFigures): string {
     return 'No enquiries in the marketing file, so the funnel cannot be read.';
   }
   if (siteVisitCount === 0 && contractCount === 0) {
-    return 'People are enquiring, but there are no site visits or contracts in the sales file. Check those dates were mapped, or that sales follow-up is happening.';
+    return 'People are enquiring, but there are no site visits or contracts in the sales file. Check visit/contract dates or pipeline stages were mapped, or that sales follow-up is happening.';
   }
   if (siteVisitCount > 0 && contractCount === 0) {
     return 'Site visits are happening; contracts are not in this file. Either contract dates were not mapped, or visits are not converting.';

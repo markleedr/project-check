@@ -9,6 +9,8 @@ import { headersToReview, mappingWarnings, suggestMapping } from './columns';
 import { mappedSpendTotal, spendOverlapMessages } from './spend-input';
 import { excelBufferToCsv } from './spreadsheet';
 import { sameDevelopmentName } from './upload-guide';
+import { funnelFromStatus, isWonContract } from './funnel';
+import { advertisingPlatform } from './spend-platform';
 
 describe('phone join digits', () => {
   it('treats common AU formats as the same last nine', () => {
@@ -272,5 +274,157 @@ describe('excel and names', () => {
   it('treats the same development name as one project', () => {
     expect(sameDevelopmentName('Solana Agnes Water', 'solana agnes water')).toBe(true);
     expect(sameDevelopmentName('Solana', 'Bankside')).toBe(false);
+  });
+});
+
+describe('RVLV-style mapping', () => {
+  it('maps DATE, medium, campaign, Source alt, buyer email and pipeline actions', () => {
+    const leads = suggestMapping(
+      ['DATE', 'FNAME', 'LNAME', 'EMAIL', 'PHONE', 'POSTCODE', 'Source alt', 'source', 'medium', 'campaign'],
+      'marketing',
+    );
+    expect(leads.DATE).toBe('enquiryDate');
+    expect(leads.FNAME).toBe('firstName');
+    expect(leads.source).toBe('utmSource');
+    expect(leads.medium).toBe('utmMedium');
+    expect(leads.campaign).toBe('utmCampaign');
+    expect(leads['Source alt']).toBe('source');
+
+    const sales = suggestMapping(
+      ['Created At', 'Assignee Email', 'Pipeline actions', 'Phone', 'Email', 'Postcode', 'Mailchimp Status', 'Last contacted'],
+      'sales',
+    );
+    expect(sales['Pipeline actions']).toBe('status');
+    expect(sales['Mailchimp Status']).toBe('ignore');
+    expect(sales.Email).toBe('email');
+    expect(sales['Assignee Email']).toBe('ignore');
+    expect(sales['Last contacted']).toBe('lastContacted');
+  });
+
+  it('reads Asana pipeline stages as visit, EOI and contract', async () => {
+    const headers = ['Phone', 'Pipeline actions', 'Created At', 'Last contacted'];
+    const mapping = suggestMapping(headers, 'sales');
+    const washed = await washRecords(
+      'sales',
+      [
+        { Phone: '0412 000 001', 'Pipeline actions': 'site tour', 'Created At': '2026-01-01', 'Last contacted': '2026-01-20' },
+        { Phone: '0412 000 002', 'Pipeline actions': 'sign eoi', 'Created At': '2026-01-01', 'Last contacted': '2026-02-01' },
+        { Phone: '0412 000 003', 'Pipeline actions': 'Settled', 'Created At': '2026-01-01', 'Last contacted': '2026-03-01' },
+        { Phone: '0412 000 004', 'Pipeline actions': 'contract crashed', 'Created At': '2026-01-01', 'Last contacted': '2026-03-01' },
+      ],
+      mapping,
+      headers,
+    );
+    const sales = washed.sales ?? [];
+    expect(sales.find((r) => r.visitDate)?.visitDate).toBe('2026-01-20');
+    expect(sales.filter((r) => r.eoiDate).length).toBe(1);
+    expect(sales.filter((r) => r.isContract).length).toBe(1);
+    expect(sales.find((r) => r.salesSourceTag === 'contract crashed')?.isContract).toBe(false);
+  });
+
+  it('drops the Meta totals row so spend is not doubled', async () => {
+    const headers = ['Campaign name', 'Amount spent (AUD)'];
+    const mapping = suggestMapping(headers, 'spend');
+    const washed = await washRecords(
+      'spend',
+      [
+        { 'Campaign name': '', 'Amount spent (AUD)': '87037.23' },
+        { 'Campaign name': 'LEAD AD', 'Amount spent (AUD)': '37345.87' },
+        { 'Campaign name': 'RETARGETING', 'Amount spent (AUD)': '49691.36' },
+      ],
+      mapping,
+      headers,
+      { defaultPlatform: 'meta' },
+    );
+    const total = (washed.spend ?? []).reduce((s, r) => s + r.amount, 0);
+    expect(total).toBeCloseTo(87037.23, 2);
+  });
+
+  it('puts Meta spend on Facebook/social sources, not only the word meta', () => {
+    expect(advertisingPlatform('Facebook cpc')).toBe('meta');
+    expect(advertisingPlatform('social ctlp')).toBe('meta');
+    expect(advertisingPlatform('google_search online')).toBe('google');
+    const figures = buildFigures({
+      enquiries: [
+        {
+          token: 'a',
+          emailToken: null,
+          crmId: null,
+          postcode: '4000',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          utmSource: 'Facebook cpc',
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          source: 'Facebook cpc',
+        },
+        {
+          token: 'b',
+          emailToken: null,
+          crmId: null,
+          postcode: '4000',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          utmSource: 'social ctlp',
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          source: 'social ctlp',
+        },
+      ],
+      sales: [],
+      spend: [{ campaign: 'LEAD AD', source: 'meta', amount: 100, date: null }],
+      ads: [],
+    });
+    const fb = figures.channels.find((c) => c.source === 'Facebook cpc');
+    const social = figures.channels.find((c) => c.source === 'social ctlp');
+    expect(fb?.spend).toBe(50);
+    expect(social?.spend).toBe(50);
+    expect(figures.spendTotal).toBe(100);
+  });
+
+  it('does not treat google_search as a postcode', () => {
+    const figures = buildFigures({
+      enquiries: [
+        {
+          token: 'a',
+          emailToken: null,
+          crmId: null,
+          postcode: 'google_search',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          utmSource: 'google_search',
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          source: 'google_search',
+        },
+        {
+          token: 'b',
+          emailToken: null,
+          crmId: null,
+          postcode: '4670',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          utmSource: 'google_search',
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          source: 'google_search',
+        },
+      ],
+      sales: [],
+      spend: [],
+      ads: [],
+    });
+    expect(figures.postcodes.map((p) => p.postcode)).toEqual(['4670']);
+    expect(suggestedActions(figures).join(' ')).not.toMatch(/google_search/);
+  });
+
+  it('does not count a crashed contract as a sale', () => {
+    expect(funnelFromStatus('contract crashed').contract).toBe(false);
+    expect(isWonContract('contract crashed', '2026-03-01')).toBe(false);
+    expect(funnelFromStatus('Settled').contract).toBe(true);
   });
 });
