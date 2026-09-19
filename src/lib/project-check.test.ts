@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { buildFigures, suggestedActions } from './aggregate';
+import * as XLSX from 'xlsx';
+import { buildFigures, funnelMeaning, nextDollarMeaning, suggestedActions } from './aggregate';
 import { hashPhoneDigits } from './hash';
 import { joinSalesToEnquiries } from './join';
 import { phoneJoinDigits } from './phone';
 import { assertNoPii, washRecords } from './wash';
-import { suggestMapping } from './columns';
+import { headersToReview, mappingWarnings, suggestMapping } from './columns';
+import { mappedSpendTotal, spendOverlapMessages } from './spend-input';
+import { excelBufferToCsv } from './spreadsheet';
+import { sameDevelopmentName } from './upload-guide';
 
 describe('phone join digits', () => {
   it('treats common AU formats as the same last nine', () => {
@@ -51,6 +55,7 @@ describe('first touch vs walk-in', () => {
       [
         {
           token,
+          emailToken: null,
           crmId: null,
           postcode: '4000',
           suburb: null,
@@ -65,6 +70,7 @@ describe('first touch vs walk-in', () => {
       [
         {
           token,
+          emailToken: null,
           crmId: null,
           postcode: '4000',
           suburb: null,
@@ -89,6 +95,7 @@ describe('first touch vs walk-in', () => {
       [
         {
           token,
+          emailToken: null,
           crmId: null,
           postcode: '4217',
           suburb: null,
@@ -113,6 +120,7 @@ describe('figures', () => {
       enquiries: [
         {
           token: fb,
+          emailToken: null,
           crmId: null,
           postcode: '4000',
           suburb: null,
@@ -127,6 +135,7 @@ describe('figures', () => {
       sales: [
         {
           token: fb,
+          emailToken: null,
           crmId: null,
           postcode: '4000',
           suburb: null,
@@ -159,5 +168,109 @@ describe('figures', () => {
     expect(figures.timing.medianDaysEnquiryToContract).toBe(31);
     const actions = suggestedActions(figures);
     expect(actions.some((a) => /facebook/i.test(a))).toBe(true);
+    expect(figures.siteVisitCount).toBe(0);
+  });
+});
+
+describe('busy-manager mapping', () => {
+  it('hides unused columns and warns when phone and email are missing', () => {
+    const headers = ['First name', 'Notes', 'Postcode', 'Enquiry date', 'UTM Source'];
+    const mapping = suggestMapping(headers, 'marketing');
+    expect(headersToReview(headers, mapping, 'marketing', false)).not.toContain('Notes');
+    expect(headersToReview(headers, mapping, 'marketing', false)).toContain('Postcode');
+    expect(mappingWarnings(mapping, 'marketing').some((w) => /phone or email/i.test(w))).toBe(true);
+  });
+});
+
+describe('spend overlap', () => {
+  it('blocks a unified total plus platform spend', () => {
+    const msgs = spendOverlapMessages({
+      unified: '25000',
+      amounts: { meta: '4000' },
+      hasFile: {},
+    });
+    expect(msgs.length).toBeGreaterThan(0);
+  });
+
+  it('blocks a typed total plus a file on the same platform', () => {
+    const msgs = spendOverlapMessages({
+      unified: '',
+      amounts: { meta: '4000' },
+      hasFile: { meta: true },
+    });
+    expect(msgs.some((m) => /Meta/i.test(m))).toBe(true);
+  });
+
+  it('sums mapped spend from a file before wash', () => {
+    expect(
+      mappedSpendTotal(
+        [
+          { 'Amount spent': '$1,200' },
+          { 'Amount spent': '800' },
+        ],
+        { 'Amount spent': 'spend' },
+      ),
+    ).toBe(2000);
+  });
+});
+
+describe('report lead-ins', () => {
+  it('says visits are not converting when visits exist and contracts do not', () => {
+    const figures = buildFigures({
+      enquiries: [
+        {
+          token: 'a',
+          emailToken: null,
+          crmId: null,
+          postcode: '4000',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          utmSource: 'facebook',
+          utmMedium: null,
+          utmCampaign: null,
+          utmContent: null,
+          source: 'facebook',
+        },
+      ],
+      sales: [
+        {
+          token: 'a',
+          emailToken: null,
+          crmId: null,
+          postcode: '4000',
+          suburb: null,
+          enquiryDate: '2026-01-01',
+          visitDate: '2026-01-10',
+          eoiDate: null,
+          contractDate: null,
+          salesSourceTag: null,
+          isContract: false,
+        },
+      ],
+      spend: [],
+      ads: [],
+    });
+    expect(funnelMeaning(figures)).toMatch(/not converting|not in this file/i);
+    expect(nextDollarMeaning(figures)).toMatch(/next dollar/i);
+  });
+});
+
+describe('excel and names', () => {
+  it('reads the first sheet of an xlsx workbook', async () => {
+    const wb = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['Phone', 'Postcode'],
+      ['0412345678', '4000'],
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, 'Sheet1');
+    const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array;
+    const csv = await excelBufferToCsv(buf);
+    expect(csv).toMatch(/Postcode/);
+    expect(csv).toMatch(/4000/);
+  });
+
+  it('treats the same development name as one project', () => {
+    expect(sameDevelopmentName('Solana Agnes Water', 'solana agnes water')).toBe(true);
+    expect(sameDevelopmentName('Solana', 'Bankside')).toBe(false);
   });
 });
