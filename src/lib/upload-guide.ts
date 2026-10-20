@@ -23,18 +23,18 @@ export const MARKETING_GUIDE: UploadGuide = {
 
 export const SALES_GUIDE: UploadGuide = {
   title: 'Sales file',
-  youGet: 'Contracts, site visits, EOIs, and how long it takes from enquiry to buy.',
+  youGet: 'Inspections, EOIs, contracts, settlements, and how long each step takes.',
   howTo:
-    'Export everyone sales has spoken to for this development — including people who never enquired online. Keep phone or email (same as marketing), plus site visit, EOI and contract dates if you have them.',
+    'Export everyone sales has spoken to for this development, including people who never enquired online. Keep phone or email (same as marketing), plus inspection, EOI, contract and settlement dates. A settled status is enough if you do not have a settlement date. Contract value is optional.',
   skip: null,
   required: true,
 };
 
 export const SPEND_GUIDE: UploadGuide = {
   title: 'What you paid',
-  youGet: 'Cost per contract, and whether a channel is expensive for the sales it produced.',
+  youGet: 'Cost per enquiry, inspection, EOI, contract and settlement, including spend by month.',
   howTo:
-    'Type one number from the media plan for this period. Only add Ads Manager files if you do not have a total. Do not enter the same dollars twice.',
+    'Type one number for the whole period, enter a monthly grid, or upload a spend file with a month column. Do not enter the same dollars twice.',
   skip: 'We can still say what sold. We cannot say what it cost.',
   required: false,
 };

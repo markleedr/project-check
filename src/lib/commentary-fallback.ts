@@ -1,13 +1,19 @@
 import { whyFindings } from './ads-findings';
-import { suggestedActions, type ReportFigures } from './aggregate';
+import { suggestedActions, timingFindings, type ReportFigures } from './aggregate';
 import type { ReportCommentary } from './report-spec';
 import { locationFindings, salesFindings } from './sales-findings';
+
+function settlementPhrase(figures: ReportFigures): string {
+  const stage = figures.funnelStages?.find((row) => row.id === 'settlement');
+  if (!stage || stage.gap) return 'settlement data needed';
+  return `${figures.settlementCount} settlements`;
+}
 
 export function fallbackCommentary(projectName: string, figures: ReportFigures): ReportCommentary {
   const actions = suggestedActions(figures);
 
   return {
-    intro: `${projectName}: ${figures.contractCount} contracts from ${figures.enquiryCount} marketing enquiries. Spend in this upload is $${Math.round(figures.spendTotal)}.`,
+    intro: `${projectName}: ${figures.uniqueEnquirerCount ?? figures.enquiryCount} unique enquirers, ${figures.eoiCount} EOIs, ${figures.contractCount} contracts and ${settlementPhrase(figures)}. Spend in this upload is $${Math.round(figures.spendTotal)}.`,
     questions: [
       {
         id: 'sales',
@@ -18,14 +24,7 @@ export function fallbackCommentary(projectName: string, figures: ReportFigures):
       {
         id: 'timing',
         title: 'When do people buy?',
-        findings:
-          figures.timing.medianDaysEnquiryToContract == null
-            ? 'Enquiry date or contract date is missing, so time to buy cannot be shown.'
-            : `Median time from enquiry to contract is ${figures.timing.medianDaysEnquiryToContract} days (${figures.timing.sampleSize} contracts). ${figures.siteVisitCount} sales rows have a site visit date${
-                figures.timing.medianDaysEnquiryToVisit != null
-                  ? `, median ${figures.timing.medianDaysEnquiryToVisit} days from enquiry to visit`
-                  : ''
-              }.`,
+        findings: timingFindings(figures),
         adsCommentary: null,
       },
       {

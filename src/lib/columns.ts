@@ -13,6 +13,8 @@ export type ColumnRole =
   | 'visitDate'
   | 'eoiDate'
   | 'contractDate'
+  | 'settlementDate'
+  | 'contractValue'
   | 'utmSource'
   | 'utmMedium'
   | 'utmCampaign'
@@ -44,9 +46,11 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
   postcode: 'Postcode',
   suburb: 'Suburb',
   enquiryDate: 'Enquiry date',
-  visitDate: 'Site visit date',
+  visitDate: 'Inspection / site visit date',
   eoiDate: 'EOI date',
   contractDate: 'Contract date',
+  settlementDate: 'Settlement date',
+  contractValue: 'Contract value',
   utmSource: 'Where they came from (UTM source)',
   utmMedium: 'UTM medium',
   utmCampaign: 'Campaign name in the link (UTM)',
@@ -63,14 +67,14 @@ export const ROLE_LABELS: Record<ColumnRole, string> = {
   clicks: 'Clicks',
   results: 'Results / leads',
   platform: 'Platform',
-  date: 'Date',
+  date: 'Date or month',
   ignore: 'Do not use',
 };
 
 /** Roles a marketing manager must confirm. Everything else stays behind “show all columns”. */
 export const IMPORTANT_ROLES: Record<FileKind, ColumnRole[]> = {
   marketing: ['phone', 'email', 'enquiryDate', 'utmSource', 'utmMedium', 'utmCampaign', 'source', 'postcode'],
-  sales: ['phone', 'email', 'contractDate', 'visitDate', 'eoiDate', 'enquiryDate', 'status', 'postcode'],
+  sales: ['phone', 'email', 'contractDate', 'settlementDate', 'contractValue', 'visitDate', 'eoiDate', 'enquiryDate', 'status', 'postcode'],
   spend: ['spend', 'campaign', 'date', 'platform'],
   ads: ['adName', 'spend', 'results', 'campaign', 'adset', 'platform'],
 };
@@ -140,7 +144,17 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
   contractDate: {
     exact: ['contractdate', 'saledate', 'unconditionaldate', 'purchasedate'],
     contains: ['contract', 'sold', 'sale date', 'unconditional'],
-    exclude: ['status'],
+    exclude: ['status', 'settlement', 'settled', 'value', 'price', 'amount'],
+  },
+  settlementDate: {
+    exact: ['settlementdate', 'settleddate', 'settlement', 'settled', 'datesettled'],
+    contains: ['settlement', 'settled'],
+    exclude: ['status', 'value', 'price', 'amount'],
+  },
+  contractValue: {
+    exact: ['contractvalue', 'contractamount', 'salevalue', 'contractprice', 'purchaseprice'],
+    contains: ['contract value', 'sale value', 'contract price', 'purchase price', 'contract amount'],
+    exclude: ['date', 'status'],
   },
   utmSource: {
     exact: ['utmsource', 'source'],
@@ -223,9 +237,9 @@ const SPECS: Partial<Record<ColumnRole, Spec>> = {
     exclude: [],
   },
   date: {
-    exact: ['date', 'day', 'reportingstarts'],
-    contains: ['reporting start', 'day'],
-    exclude: ['created', 'contract', 'birth'],
+    exact: ['date', 'day', 'month', 'spendmonth', 'reportingstarts', 'reportingmonth'],
+    contains: ['reporting start', 'month', 'day'],
+    exclude: ['created', 'contract', 'birth', 'settlement', 'enquiry', 'inquiry'],
   },
 };
 
@@ -263,7 +277,7 @@ export function suggestRole(header: string, kind: FileKind): ColumnRole {
 export function allowedRoles(kind: FileKind): ColumnRole[] {
   const people: ColumnRole[] = [
     'phone', 'email', 'firstName', 'lastName', 'name', 'address', 'postcode', 'suburb',
-    'enquiryDate', 'visitDate', 'eoiDate', 'contractDate', 'lastContacted', 'utmSource', 'utmMedium',
+    'enquiryDate', 'visitDate', 'eoiDate', 'contractDate', 'settlementDate', 'contractValue', 'lastContacted', 'utmSource', 'utmMedium',
     'utmCampaign', 'utmContent', 'source', 'status', 'crmId', 'ignore',
   ];
   if (kind === 'marketing' || kind === 'sales') return people;
@@ -330,6 +344,12 @@ export function mappingWarnings(mapping: Record<string, ColumnRole>, kind: FileK
     if (!used.has('status') && !used.has('eoiDate')) {
       warnings.push('Map EOI date or an EOI pipeline stage.');
     }
+    if (!used.has('status') && !used.has('settlementDate')) {
+      warnings.push('Map settlement date or a settled status, or the settlement stage will show as data needed.');
+    }
+  }
+  if (kind === 'spend' && used.has('spend') && !used.has('date')) {
+    warnings.push('Map a date or month column, or spend by month will show as not calculable. You can also type monthly amounts.');
   }
   if (kind === 'spend' && !used.has('spend')) {
     warnings.push('Map the spend column or this file will not add any money.');
