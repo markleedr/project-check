@@ -1,6 +1,64 @@
 import { joinSalesToEnquiries, type JoinedBuyer } from './join';
+import { monthKey } from './spend-input';
 import { advertisingPlatform, spendPlatformKey } from './spend-platform';
 import type { WashedAd, WashedEnquiry, WashedSale, WashedSpend } from './wash';
+
+export const FUNNEL_STAGES = [
+  {
+    id: 'enquiry',
+    label: 'Enquiry',
+    dataNeeded: 'Enquiry rows with a phone or email',
+  },
+  {
+    id: 'inspection',
+    label: 'Inspection',
+    dataNeeded: 'Inspection date, or a site visit / inspection pipeline stage',
+  },
+  {
+    id: 'eoi',
+    label: 'EOI',
+    dataNeeded: 'EOI date, or an EOI pipeline stage',
+  },
+  {
+    id: 'contract',
+    label: 'Contract',
+    dataNeeded: 'Contract date, or a contract pipeline stage',
+  },
+  {
+    id: 'settlement',
+    label: 'Settlement',
+    dataNeeded: 'Settlement date, or a settled status',
+  },
+] as const;
+
+export type FunnelStageId = (typeof FUNNEL_STAGES)[number]['id'];
+
+export interface FunnelStageRow {
+  id: FunnelStageId;
+  label: string;
+  count: number;
+  /** True when the stage was not in the file. Count is not estimated. */
+  gap: boolean;
+  dataNeeded: string | null;
+  /** False for enquiry, which has no previous stage. */
+  priorStage: boolean;
+  conversionFromPrevious: number | null;
+  conversionFromEnquiry: number | null;
+  medianDays: number | null;
+  averageDays: number | null;
+  /** Rows with a non-negative gap between this stage and the previous one. */
+  n: number;
+  /** Total spend divided by the stage count. Null when spend or the count is missing. */
+  costPerStage: number | null;
+}
+
+export interface MonthlySpendRow {
+  month: string;
+  platform: string;
+  amount: number;
+  enquiries: number;
+  costPerEnquiry: number | null;
+}
 
 export interface ChannelRow {
   source: string;
@@ -16,6 +74,9 @@ export interface TimingStats {
   medianDaysEnquiryToContract: number | null;
   medianDaysEnquiryToVisit: number | null;
   medianDaysEnquiryToEoi: number | null;
+  medianDaysEoiToContract: number | null;
+  averageDaysEoiToContract: number | null;
+  eoiToContractSampleSize: number;
   missingVisit: number;
   missingEoi: number;
 }
@@ -40,8 +101,10 @@ export interface AdRow {
 
 export interface ReportFigures {
   enquiryCount: number;
+  uniqueEnquirerCount: number;
   salesContactedCount: number;
   contractCount: number;
+  settlementCount: number;
   siteVisitCount: number;
   eoiCount: number;
   unmatchedSales: number;
@@ -49,6 +112,8 @@ export interface ReportFigures {
   skippedNoJoinKey: { marketing: number; sales: number };
   channels: ChannelRow[];
   timing: TimingStats;
+  funnelStages: FunnelStageRow[];
+  monthlySpend: MonthlySpendRow[];
   postcodes: PostcodeRow[];
   ads: AdRow[];
   spendTotal: number;
@@ -72,6 +137,12 @@ function median(values: number[]): number | null {
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sum = values.reduce((total, value) => total + value, 0);
+  return Math.round((sum / values.length) * 10) / 10;
 }
 
 function normaliseSource(s: string): string {
@@ -119,6 +190,8 @@ export function buildFigures(input: {
   const contracts = joined.filter((j) => j.sale.isContract);
   const eoiCount = joined.filter((j) => Boolean(j.sale.eoiDate)).length;
   const siteVisitCount = input.sales.filter((s) => Boolean(s.visitDate)).length;
+  const settlementCount = input.sales.filter((s) => s.isSettled).length;
+  const uniqueEnquirerCount = new Set(input.enquiries.map((e) => e.token).filter(Boolean)).size;
 
   const enquiryBySource = new Map<string, number>();
   for (const e of input.enquiries) {
@@ -155,7 +228,17 @@ export function buildFigures(input: {
     })
     .sort((a, b) => b.contracts - a.contracts || b.enquiries - a.enquiries);
 
-  const timing = timingFrom(contracts);
+  const timing = timingFrom(contracts, joined);
+  const funnelStages = buildFunnelStages({
+    joined,
+    uniqueEnquirerCount,
+    siteVisitCount,
+    eoiCount,
+    contractCount: contracts.length,
+    settlementCount,
+    spendTotal,
+  });
+  const monthlySpend = buildMonthlySpend(input.spend, input.enquiries);
   const postcodes = postcodeMix(input.enquiries, contracts);
 
   const ads: AdRow[] = input.ads.map((a) => ({
@@ -172,9 +255,12 @@ export function buildFigures(input: {
 
   const guesses: string[] = [];
   const shown: string[] = [
-    'A sale is a contract signed.',
+    'A sale is a contract signed. Settled buyers are also counted as contracts, and settlement is its own stage.',
     'Digital source is first-touch UTM on the marketing enquiry. A later walk-in tag on the sales file does not override it.',
     'Offline is anyone on the sales file who does not match a marketing enquiry.',
+    'Unique enquirers are distinct match tokens on the marketing file.',
+    'Cost per stage is total spend divided by the count at that stage. It is not calculable when spend or the count is missing.',
+    'Days between stages use sales rows that have both dates. Negative or missing gaps are left out.',
   ];
 
   if (input.spend.length === 0) {
@@ -192,12 +278,22 @@ export function buildFigures(input: {
   if (postcodes.every((p) => !p.postcode || p.postcode === 'unknown')) {
     guesses.push('Postcode is missing, so we cannot describe where buyers live.');
   }
+  for (const stage of funnelStages) {
+    if (stage.gap && stage.id !== 'enquiry') {
+      guesses.push(`${stage.label} is data needed (${stage.dataNeeded}). Conversion, days and cost for that stage are not calculable.`);
+    }
+  }
+  if (spendTotal > 0 && monthlySpend.length === 0) {
+    guesses.push('Spend has no month, so spend by month is not calculable.');
+  }
   guesses.push('Buyer personas beyond channel, postcode and time to contract are not in a basic CRM export.');
 
   return {
     enquiryCount: input.enquiries.length,
+    uniqueEnquirerCount,
     salesContactedCount: input.sales.length,
     contractCount: contracts.length,
+    settlementCount,
     siteVisitCount,
     eoiCount,
     unmatchedSales: joined.filter((j) => j.attributionKind !== 'digital_first_touch').length,
@@ -205,6 +301,8 @@ export function buildFigures(input: {
     skippedNoJoinKey: input.skippedNoJoinKey ?? { marketing: 0, sales: 0 },
     channels,
     timing,
+    funnelStages,
+    monthlySpend,
     postcodes,
     ads,
     spendTotal,
@@ -213,7 +311,7 @@ export function buildFigures(input: {
   };
 }
 
-function timingFrom(contracts: JoinedBuyer[]): TimingStats {
+function timingFrom(contracts: JoinedBuyer[], joined: JoinedBuyer[]): TimingStats {
   const toContract: number[] = [];
   const toVisit: number[] = [];
   const toEoi: number[] = [];
@@ -237,14 +335,258 @@ function timingFrom(contracts: JoinedBuyer[]): TimingStats {
       if (de != null && de >= 0) toEoi.push(de);
     }
   }
+  const eoiToContract = stageGapDays(joined, 'eoi', 'contract');
   return {
     sampleSize: contracts.length,
     medianDaysEnquiryToContract: median(toContract),
     medianDaysEnquiryToVisit: median(toVisit),
     medianDaysEnquiryToEoi: median(toEoi),
+    medianDaysEoiToContract: median(eoiToContract),
+    averageDaysEoiToContract: average(eoiToContract),
+    eoiToContractSampleSize: eoiToContract.length,
     missingVisit,
     missingEoi,
   };
+}
+
+function enquiryDateOf(row: JoinedBuyer): string | null {
+  return row.sale.enquiryDate ?? row.enquiry?.enquiryDate ?? null;
+}
+
+function stageDate(row: JoinedBuyer, id: FunnelStageId): string | null {
+  if (id === 'enquiry') return enquiryDateOf(row);
+  if (id === 'inspection') return row.sale.visitDate;
+  if (id === 'eoi') return row.sale.eoiDate;
+  if (id === 'contract') return row.sale.contractDate;
+  return row.sale.settlementDate;
+}
+
+function reachedStage(row: JoinedBuyer, id: FunnelStageId): boolean {
+  if (id === 'enquiry') return Boolean(enquiryDateOf(row));
+  if (id === 'inspection') return Boolean(row.sale.visitDate);
+  if (id === 'eoi') return Boolean(row.sale.eoiDate);
+  if (id === 'contract') return row.sale.isContract;
+  return row.sale.isSettled;
+}
+
+/** Non-negative day gaps between two stages. Missing or negative dates are dropped. */
+function stageGapDays(joined: JoinedBuyer[], from: FunnelStageId, to: FunnelStageId): number[] {
+  const values: number[] = [];
+  for (const row of joined) {
+    if (!reachedStage(row, to)) continue;
+    const gap = daysBetween(parseDate(stageDate(row, from)), parseDate(stageDate(row, to)));
+    if (gap != null && gap >= 0) values.push(gap);
+  }
+  return values;
+}
+
+export function buildFunnelStages(input: {
+  joined: JoinedBuyer[];
+  uniqueEnquirerCount: number;
+  siteVisitCount: number;
+  eoiCount: number;
+  contractCount: number;
+  settlementCount: number;
+  spendTotal: number;
+}): FunnelStageRow[] {
+  const counts: Record<FunnelStageId, number> = {
+    enquiry: input.uniqueEnquirerCount,
+    inspection: input.siteVisitCount,
+    eoi: input.eoiCount,
+    contract: input.contractCount,
+    settlement: input.settlementCount,
+  };
+
+  return FUNNEL_STAGES.map((stage, index) => {
+    const gap = counts[stage.id] === 0;
+    const previous = index === 0 ? null : FUNNEL_STAGES[index - 1];
+    const previousGap = previous ? counts[previous.id] === 0 : false;
+    const days =
+      previous && !gap && !previousGap ? stageGapDays(input.joined, previous.id, stage.id) : [];
+    const enquiryGap = counts.enquiry === 0;
+    return {
+      id: stage.id,
+      label: stage.label,
+      count: gap ? 0 : counts[stage.id],
+      gap,
+      dataNeeded: gap ? stage.dataNeeded : null,
+      priorStage: index > 0,
+      conversionFromPrevious:
+        !previous || gap || previousGap || counts[previous.id] <= 0
+          ? null
+          : counts[stage.id] / counts[previous.id],
+      conversionFromEnquiry:
+        stage.id === 'enquiry' || gap || enquiryGap ? null : counts[stage.id] / counts.enquiry,
+      medianDays: days.length ? median(days) : null,
+      averageDays: average(days),
+      n: days.length,
+      costPerStage: gap || input.spendTotal <= 0 || counts[stage.id] <= 0 ? null : input.spendTotal / counts[stage.id],
+    };
+  });
+}
+
+function buildMonthlySpend(spend: WashedSpend[], enquiries: WashedEnquiry[]): MonthlySpendRow[] {
+  const amounts = new Map<string, number>();
+  for (const row of spend) {
+    const month = monthKey(row.date);
+    if (!month) continue;
+    const platform = spendPlatformKey(row) ?? (row.source?.trim() || 'unspecified');
+    const key = `${month}|${platform}`;
+    amounts.set(key, (amounts.get(key) ?? 0) + row.amount);
+  }
+
+  const byMonthPlatform = new Map<string, Set<string>>();
+  const byMonthAll = new Map<string, Set<string>>();
+  for (const enquiry of enquiries) {
+    const month = monthKey(enquiry.enquiryDate);
+    if (!month || !enquiry.token) continue;
+    const all = byMonthAll.get(month) ?? new Set<string>();
+    all.add(enquiry.token);
+    byMonthAll.set(month, all);
+    const platform = advertisingPlatform(enquiry.source || enquiry.utmSource);
+    if (!platform) continue;
+    const key = `${month}|${platform}`;
+    const set = byMonthPlatform.get(key) ?? new Set<string>();
+    set.add(enquiry.token);
+    byMonthPlatform.set(key, set);
+  }
+
+  return [...amounts.entries()]
+    .map(([key, amount]) => {
+      const [month, platform] = key.split('|');
+      const channelSpecific = platform === 'meta' || platform === 'google' || platform === 'linkedin';
+      const enquiriesInBucket = channelSpecific
+        ? (byMonthPlatform.get(key)?.size ?? 0)
+        : (byMonthAll.get(month)?.size ?? 0);
+      return {
+        month,
+        platform,
+        amount,
+        enquiries: enquiriesInBucket,
+        costPerEnquiry: enquiriesInBucket > 0 ? amount / enquiriesInBucket : null,
+      };
+    })
+    .sort((a, b) => a.month.localeCompare(b.month) || a.platform.localeCompare(b.platform));
+}
+
+export function formatStageCount(row: FunnelStageRow): string {
+  if (row.gap) return 'Data needed';
+  return row.count.toLocaleString('en-AU');
+}
+
+export function formatStageConversion(row: FunnelStageRow): string {
+  if (!row.priorStage) return '—';
+  if (row.conversionFromPrevious == null) return 'not calculable';
+  return `${Math.round(row.conversionFromPrevious * 100)}%`;
+}
+
+export function formatStageDays(value: number | null, applicable: boolean): string {
+  if (!applicable) return '—';
+  if (value == null) return 'not calculable';
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+export function formatStageCost(value: number | null): string {
+  if (value == null) return 'not calculable';
+  return `$${Math.round(value).toLocaleString('en-AU')}`;
+}
+
+export function funnelTableRows(figures: ReportFigures): string[][] {
+  return (figures.funnelStages ?? []).map((row) => [
+    row.label,
+    formatStageCount(row),
+    formatStageConversion(row),
+    formatStageDays(row.medianDays, row.priorStage),
+    formatStageDays(row.averageDays, row.priorStage),
+    formatStageCost(row.costPerStage),
+  ]);
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  meta: 'Meta',
+  google: 'Google',
+  linkedin: 'LinkedIn',
+  other: 'Other',
+  unspecified: 'Unspecified',
+  'all platforms': 'All platforms',
+};
+
+export function platformLabel(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? platform;
+}
+
+export function monthlyTableRows(figures: ReportFigures): string[][] {
+  return (figures.monthlySpend ?? []).map((row) => [
+    row.month,
+    platformLabel(row.platform),
+    `$${Math.round(row.amount).toLocaleString('en-AU')}`,
+    row.enquiries.toLocaleString('en-AU'),
+    formatStageCost(row.costPerEnquiry),
+  ]);
+}
+
+/** Template narrative for the milestone funnel. Missing inputs stay "not calculable". */
+export function funnelFindings(figures: ReportFigures): string {
+  const stages = figures.funnelStages ?? [];
+  if (stages.length === 0) return 'The milestone funnel is not calculable from this check.';
+  return stages
+    .map((stage) => {
+      if (stage.gap) {
+        return `${stage.label}: data needed. Conversion, days and cost are not calculable.`;
+      }
+      const parts = [`${stage.label}: ${stage.count.toLocaleString('en-AU')}.`];
+      if (stage.priorStage) {
+        parts.push(
+          stage.conversionFromPrevious == null
+            ? 'Conversion from the previous stage is not calculable.'
+            : `${Math.round(stage.conversionFromPrevious * 100)}% converted from the previous stage.`,
+        );
+        parts.push(
+          stage.medianDays == null
+            ? 'Median and average days are not calculable.'
+            : `Median ${formatStageDays(stage.medianDays, true)} days, average ${formatStageDays(stage.averageDays, true)} days (n=${stage.n}).`,
+        );
+      }
+      if (stage.id !== 'enquiry') {
+        parts.push(
+          stage.conversionFromEnquiry == null
+            ? 'Conversion from enquiry is not calculable.'
+            : `${Math.round(stage.conversionFromEnquiry * 100)}% of enquiries reached this stage.`,
+        );
+      }
+      parts.push(stage.costPerStage == null ? 'Cost is not calculable.' : `Cost per stage ${formatStageCost(stage.costPerStage)}.`);
+      return parts.join(' ');
+    })
+    .join(' ');
+}
+
+export function monthlySpendFindings(figures: ReportFigures): string {
+  if ((figures.spendTotal ?? 0) <= 0) {
+    return 'No spend was uploaded, so spend by month and cost per stage are not calculable.';
+  }
+  const rows = figures.monthlySpend ?? [];
+  if (rows.length === 0) {
+    return 'Spend has no month, so spend by month is not calculable. Add a month column to the spend file, or enter monthly amounts on the spend step.';
+  }
+  const months = [...new Set(rows.map((row) => row.month))].sort();
+  const monthLabel = months.length === 1 ? '1 month' : `${months.length} months`;
+  return `Spend is dated across ${monthLabel} (${months.join(', ')}). Cost per enquiry is this channel's spend in the month divided by enquiries from that channel. It is not calculable when that month has no matching enquiries.`;
+}
+
+export function timingFindings(figures: ReportFigures): string {
+  const medianDays = figures.timing.medianDaysEoiToContract;
+  const gaps = (figures.funnelStages ?? []).filter((stage) => stage.gap).map((stage) => stage.label);
+  const gapNote =
+    gaps.length > 0
+      ? ` ${gaps.join(', ')} ${gaps.length === 1 ? 'is' : 'are'} data needed, so conversion, days and cost there are not calculable.`
+      : '';
+  if (medianDays == null) {
+    return `Median days from EOI to contract are not calculable.${gapNote}`;
+  }
+  const averageDays = figures.timing.averageDaysEoiToContract;
+  const averageText =
+    averageDays == null ? '' : ` Average ${formatStageDays(averageDays, true)} days.`;
+  return `Median days from EOI to contract is ${formatStageDays(medianDays, true)} (n=${figures.timing.eoiToContractSampleSize}).${averageText}${gapNote}`;
 }
 
 function looksLikePostcode(value: string | null): boolean {

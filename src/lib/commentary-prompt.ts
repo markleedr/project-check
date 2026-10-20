@@ -21,7 +21,12 @@ Voice (from PP report commentary):
 - No AI filler. No passive distance from the work.
 
 Product rules that override the skill where they clash:
-- A sale is a contract signed. Enquiry and EOI are leading indicators only.
+- A sale is a contract signed. Enquiry, inspection and EOI are leading indicators. Settlement is its own stage after contract. A settled buyer has also contracted. A contract is not settled unless there is a settlement date or a settled status.
+- The milestone funnel is figures.funnelStages: enquiry, inspection, EOI, contract, settlement. Each row has count, conversion from the previous stage, conversion from enquiry, median days, average days, n and cost per stage.
+- When a stage has gap true, or a number is null, say "data needed" or "not calculable". Do not estimate a missing stage.
+- Cost per stage is total spend divided by the count. It is not calculable when spend or the count is missing.
+- figures.monthlySpend is spend by month and channel, with cost per enquiry. Do not invent months. If monthlySpend is empty, spend by month is not calculable.
+- Name unique enquirers (figures.uniqueEnquirerCount), EOIs, contracts, settlements and median days from EOI to contract when those figures exist.
 - Digital attribution is first-touch UTM on the marketing enquiry. If the sales file later says walk-in, UTM still wins. Say how many tags were overridden.
 - Offline is a sales row with no matching marketing enquiry. Those tags can be lumped if they are messy.
 - The CRM is basic. Do not invent personas, income, or motivations.

@@ -1,5 +1,5 @@
 import { ColumnRole, FileKind, PII_ROLES } from './columns';
-import { firstFilledDate, funnelFromStatus, isWonContract } from './funnel';
+import { firstFilledDate, funnelFromStatus, isSettled, isWonContract } from './funnel';
 import { hashEmail, hashPhoneDigits } from './hash';
 import { phoneJoinDigits } from './phone';
 
@@ -27,8 +27,11 @@ export interface WashedSale {
   visitDate: string | null;
   eoiDate: string | null;
   contractDate: string | null;
+  settlementDate: string | null;
+  contractValue: number | null;
   salesSourceTag: string | null;
   isContract: boolean;
+  isSettled: boolean;
 }
 
 export interface WashedSpend {
@@ -74,6 +77,12 @@ function parseMoney(raw: string | null): number {
   if (!raw) return 0;
   const n = Number(raw.replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? n : 0;
+}
+
+function parseMoneyOrNull(raw: string | null): number | null {
+  if (!raw || !raw.trim()) return null;
+  const n = Number(raw.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
 function parseCount(raw: string | null): number {
@@ -185,10 +194,15 @@ export async function washRecords(
       );
       const visitDate = firstFilledDate(cell(rec, mapping, 'visitDate'), stages.visit ? fallbackDate : null);
       const eoiDate = firstFilledDate(cell(rec, mapping, 'eoiDate'), stages.eoi ? fallbackDate : null);
+      const settlementDate = firstFilledDate(
+        cell(rec, mapping, 'settlementDate'),
+        stages.settlement ? fallbackDate : null,
+      );
       const contractDate = firstFilledDate(
         cell(rec, mapping, 'contractDate'),
         stages.contract ? fallbackDate : null,
       );
+      const settled = isSettled(status, settlementDate);
       sales.push({
         token,
         emailToken,
@@ -199,8 +213,11 @@ export async function washRecords(
         visitDate,
         eoiDate,
         contractDate,
+        settlementDate,
+        contractValue: parseMoneyOrNull(cell(rec, mapping, 'contractValue')),
         salesSourceTag: cell(rec, mapping, 'source') ?? status,
-        isContract: isWonContract(status, contractDate),
+        isContract: isWonContract(status, contractDate, settlementDate) || settled,
+        isSettled: settled,
       });
     }
     return {

@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { CheckReportSheet } from '@/components/CheckReportSheet';
+import { ReportBody } from '@/components/ReportBody';
 import * as XLSX from 'xlsx';
 import { rankedAds, whyFindings } from './ads-findings';
-import { buildFigures, funnelMeaning, nextDollarDirection, spendDirectionActions, suggestedActions } from './aggregate';
+import { buildFigures, formatStageConversion, formatStageCost, formatStageCount, funnelFindings, funnelMeaning, monthlySpendFindings, nextDollarDirection, spendDirectionActions, suggestedActions } from './aggregate';
 import { fallbackCommentary } from './commentary-fallback';
 import { locationTableRows, mapDots, postcodeCentroid, projectLatLng } from './geo/project';
 import { locationFindings, salesFindings, topSalesChannels } from './sales-findings';
@@ -10,10 +15,10 @@ import { joinSalesToEnquiries } from './join';
 import { phoneJoinDigits } from './phone';
 import { assertNoPii, washRecords } from './wash';
 import { headersToReview, mappingWarnings, suggestMapping } from './columns';
-import { mappedSpendTotal, spendOverlapMessages } from './spend-input';
+import { collectSpendRows, mappedSpendTotal, monthKey, monthlyEntriesToSpend, spendOverlapMessages } from './spend-input';
 import { excelBufferToCsv } from './spreadsheet';
 import { sameDevelopmentName } from './upload-guide';
-import { funnelFromStatus, isWonContract } from './funnel';
+import { funnelFromStatus, isSettled, isWonContract } from './funnel';
 import { advertisingPlatform } from './spend-platform';
 
 describe('phone join digits', () => {
@@ -84,8 +89,11 @@ describe('first touch vs walk-in', () => {
           visitDate: '2026-01-20',
           eoiDate: '2026-02-01',
           contractDate: '2026-03-01',
+          settlementDate: null,
+          contractValue: null,
           salesSourceTag: 'Walk in',
           isContract: true,
+          isSettled: false,
         },
       ],
     );
@@ -109,8 +117,11 @@ describe('first touch vs walk-in', () => {
           visitDate: null,
           eoiDate: null,
           contractDate: '2026-03-02',
+          settlementDate: null,
+          contractValue: null,
           salesSourceTag: 'Walk in',
           isContract: true,
+          isSettled: false,
         },
       ],
     );
@@ -149,8 +160,11 @@ describe('figures', () => {
           visitDate: null,
           eoiDate: null,
           contractDate: '2026-02-01',
+          settlementDate: null,
+          contractValue: null,
           salesSourceTag: 'Walk in',
           isContract: true,
+          isSettled: false,
         },
       ],
       spend: [{ campaign: 'facebook-prospecting', source: 'facebook', amount: 4000, date: null }],
@@ -249,8 +263,11 @@ describe('report lead-ins', () => {
           visitDate: '2026-01-10',
           eoiDate: null,
           contractDate: null,
+          settlementDate: null,
+          contractValue: null,
           salesSourceTag: null,
           isContract: false,
+          isSettled: false,
         },
       ],
       spend: [],
@@ -407,8 +424,11 @@ function sale(token: string, isContract: boolean, postcode: string) {
     visitDate: '2026-01-10',
     eoiDate: null,
     contractDate: isContract ? '2026-02-01' : null,
+    settlementDate: null,
+    contractValue: null,
     salesSourceTag: null,
     isContract,
+    isSettled: false,
   };
 }
 
@@ -474,7 +494,9 @@ describe('RVLV-style mapping', () => {
     expect(sales.find((r) => r.visitDate)?.visitDate).toBe('2026-01-20');
     expect(sales.filter((r) => r.eoiDate).length).toBe(1);
     expect(sales.filter((r) => r.isContract).length).toBe(1);
+    expect(sales.filter((r) => r.isSettled).length).toBe(1);
     expect(sales.find((r) => r.salesSourceTag === 'contract crashed')?.isContract).toBe(false);
+    expect(sales.find((r) => r.salesSourceTag === 'contract crashed')?.isSettled).toBe(false);
   });
 
   it('drops the Meta totals row so spend is not doubled', async () => {
@@ -581,5 +603,264 @@ describe('RVLV-style mapping', () => {
     expect(funnelFromStatus('contract crashed').contract).toBe(false);
     expect(isWonContract('contract crashed', '2026-03-01')).toBe(false);
     expect(funnelFromStatus('Settled').contract).toBe(true);
+    expect(funnelFromStatus('Settled').settlement).toBe(true);
+    expect(funnelFromStatus('contract signed').settlement).toBe(false);
+    expect(funnelFromStatus('unconditional').contract).toBe(true);
+    expect(funnelFromStatus('unconditional').settlement).toBe(false);
+    expect(isSettled('contract signed', null)).toBe(false);
+    expect(isSettled('Settled', null)).toBe(true);
+    expect(isWonContract('Settled', null)).toBe(true);
   });
 });
+
+describe('milestone funnel', () => {
+  it('maps settlement, contract value, inspection and spend month', () => {
+    const sales = suggestMapping(
+      ['Phone', 'Inspection date', 'Contract date', 'Unconditional date', 'Settlement date', 'Contract value', 'Status'],
+      'sales',
+    );
+    expect(sales['Inspection date']).toBe('visitDate');
+    expect(sales['Contract date']).toBe('contractDate');
+    expect(sales['Settlement date']).toBe('settlementDate');
+    expect(sales['Contract value']).toBe('contractValue');
+    expect(sales.Status).toBe('status');
+    expect(sales['Unconditional date']).toBe('ignore');
+    expect(suggestMapping(['Unconditional date', 'Phone'], 'sales')['Unconditional date']).toBe('contractDate');
+
+    const spend = suggestMapping(['Month', 'Platform', 'Amount'], 'spend');
+    expect(spend.Month).toBe('date');
+    expect(spend.Platform).toBe('platform');
+    expect(spend.Amount).toBe('spend');
+    expect(monthKey('2026-01')).toBe('2026-01');
+    expect(monthKey('March 2026')).toBe('2026-03');
+    expect(monthKey('02/2026')).toBe('2026-02');
+
+    const salesHeader = readFileSync('public/fixtures/sales.csv', 'utf8').split('\n')[0];
+    const spendHeader = readFileSync('public/fixtures/spend.csv', 'utf8').split('\n')[0];
+    expect(suggestMapping(salesHeader.split(','), 'sales')['Settlement date']).toBe('settlementDate');
+    expect(suggestMapping(salesHeader.split(','), 'sales')['Contract value']).toBe('contractValue');
+    expect(suggestMapping(spendHeader.split(','), 'spend').Month).toBe('date');
+  });
+
+  it('keeps settled as a contract and does not treat a contract as settled', async () => {
+    const headers = ['Phone', 'Status', 'Enquiry date', 'Contract date', 'Settlement date', 'Contract value'];
+    const mapping = suggestMapping(headers, 'sales');
+    const washed = await washRecords(
+      'sales',
+      [
+        {
+          Phone: '0412 000 011',
+          Status: 'Contract signed',
+          'Enquiry date': '2026-01-01',
+          'Contract date': '2026-02-01',
+          'Settlement date': '',
+          'Contract value': '$650,000',
+        },
+        {
+          Phone: '0412 000 012',
+          Status: 'Settled',
+          'Enquiry date': '2026-01-01',
+          'Contract date': '2026-02-10',
+          'Settlement date': '2026-04-01',
+          'Contract value': '700000',
+        },
+      ],
+      mapping,
+      headers,
+    );
+    expect(assertNoPii(washed)).toEqual([]);
+    const rows = washed.sales ?? [];
+    const contracted = rows.find((row) => row.contractValue === 650000);
+    const settled = rows.find((row) => row.contractValue === 700000);
+    expect(contracted?.isContract).toBe(true);
+    expect(contracted?.isSettled).toBe(false);
+    expect(settled?.isContract).toBe(true);
+    expect(settled?.isSettled).toBe(true);
+    expect(settled?.settlementDate).toBe('2026-04-01');
+    expect(JSON.stringify(rows)).not.toContain('0412');
+  });
+
+  it('calculates conversion, median and average days, and leaves gaps as data needed', () => {
+    const figures = buildFigures({
+      enquiries: [
+        enquiry('a', 'facebook', '4000'),
+        enquiry('b', 'facebook', '4000'),
+        enquiry('c', 'google', '4217'),
+        enquiry('d', 'google', '4217'),
+      ],
+      sales: [
+        stageSale('a', {
+          visitDate: '2026-01-11',
+          eoiDate: '2026-01-21',
+          contractDate: '2026-02-04',
+          settlementDate: '2026-03-06',
+          isContract: true,
+          isSettled: true,
+        }),
+        stageSale('b', {
+          visitDate: '2026-01-21',
+          eoiDate: '2026-02-10',
+          contractDate: '2026-03-12',
+          settlementDate: '2026-04-11',
+          isContract: true,
+          isSettled: true,
+        }),
+        stageSale('c', {
+          visitDate: '2025-12-15',
+          eoiDate: '2025-12-01',
+          contractDate: '2025-11-01',
+          settlementDate: '2025-10-01',
+          isContract: true,
+          isSettled: true,
+        }),
+        stageSale('d', {
+          visitDate: null,
+          eoiDate: '2026-02-01',
+          contractDate: '2026-01-15',
+          settlementDate: null,
+          isContract: true,
+          isSettled: false,
+        }),
+      ],
+      spend: [{ campaign: 'all', source: 'meta', amount: 4000, date: '2026-01-15' }],
+      ads: [],
+    });
+
+    const byId = Object.fromEntries(figures.funnelStages.map((row) => [row.id, row]));
+    expect(byId.enquiry.count).toBe(4);
+    expect(byId.enquiry.gap).toBe(false);
+    expect(byId.enquiry.costPerStage).toBe(1000);
+    expect(formatStageConversion(byId.enquiry)).toBe('—');
+
+    expect(byId.inspection.count).toBe(3);
+    expect(byId.inspection.conversionFromPrevious).toBeCloseTo(0.75);
+    expect(byId.inspection.medianDays).toBe(15);
+    expect(byId.inspection.averageDays).toBe(15);
+    expect(byId.inspection.n).toBe(2);
+    expect(byId.inspection.costPerStage).toBeCloseTo(4000 / 3);
+
+    expect(byId.eoi.medianDays).toBe(15);
+    expect(byId.eoi.averageDays).toBe(15);
+    expect(byId.eoi.n).toBe(2);
+
+    expect(byId.contract.count).toBe(4);
+    expect(byId.contract.medianDays).toBe(22);
+    expect(byId.contract.averageDays).toBe(22);
+    expect(byId.contract.n).toBe(2);
+    expect(figures.timing.medianDaysEoiToContract).toBe(22);
+
+    expect(byId.settlement.count).toBe(3);
+    expect(byId.settlement.conversionFromPrevious).toBeCloseTo(0.75);
+    expect(byId.settlement.medianDays).toBe(30);
+    expect(byId.settlement.averageDays).toBe(30);
+    expect(byId.settlement.n).toBe(2);
+    expect(byId.settlement.costPerStage).toBeCloseTo(4000 / 3);
+
+    const bare = buildFigures({
+      enquiries: [enquiry('a', 'facebook', '4000')],
+      sales: [stageSale('a', { visitDate: null, isContract: true, contractDate: '2026-02-01' })],
+      spend: [],
+      ads: [],
+    });
+    const bareStages = Object.fromEntries(bare.funnelStages.map((row) => [row.id, row]));
+    expect(bareStages.inspection.gap).toBe(true);
+    expect(formatStageCount(bareStages.inspection)).toBe('Data needed');
+    expect(formatStageCost(bareStages.contract.costPerStage)).toBe('not calculable');
+    expect(bareStages.settlement.gap).toBe(true);
+    expect(funnelFindings(bare)).toMatch(/Inspection: data needed/);
+    expect(funnelFindings(bare)).toMatch(/not calculable/);
+    expect(monthlySpendFindings(bare)).toMatch(/not calculable/);
+
+    const commentary = fallbackCommentary('Vila', bare);
+    expect(commentary.intro).toMatch(/unique enquirers/);
+    expect(commentary.intro).toMatch(/settlement data needed/);
+    expect(commentary.questions.find((q) => q.id === 'timing')?.findings).toMatch(/not calculable/);
+    const screen = renderToStaticMarkup(createElement(ReportBody, { figures: bare, commentary }));
+    const print = renderToStaticMarkup(
+      createElement(CheckReportSheet, {
+        projectName: 'Vila',
+        preparedAt: '2026-10-13T00:00:00.000Z',
+        figures: bare,
+        commentary,
+      }),
+    );
+    for (const html of [screen, print]) {
+      expect(html).toContain('Milestone funnel');
+      expect(html).toContain('Data needed');
+      expect(html).toContain('not calculable');
+      expect(html).toContain('Spend by month');
+      expect(html).toContain('Settlement');
+      expect(html).toContain('Median days EOI to contract');
+    }
+  });
+
+  it('buckets monthly spend and dedupes enquirers', () => {
+    const figures = buildFigures({
+      enquiries: [
+        { ...enquiry('a', 'facebook', '4000'), enquiryDate: '2026-01-05' },
+        { ...enquiry('a', 'facebook', '4000'), enquiryDate: '2026-01-06' },
+        { ...enquiry('b', 'facebook', '4000'), enquiryDate: '2026-01-20' },
+        { ...enquiry('c', 'google', '4217'), enquiryDate: '2026-02-02' },
+      ],
+      sales: [],
+      spend: [
+        { campaign: 'm', source: 'meta', amount: 200, date: '2026-01-31' },
+        { campaign: 'm2', source: 'meta', amount: 50, date: 'January 2026' },
+        { campaign: 'g', source: 'google', amount: 90, date: '02/2026' },
+        { campaign: 'undated', source: 'meta', amount: 10, date: null },
+      ],
+      ads: [],
+    });
+    expect(figures.enquiryCount).toBe(4);
+    expect(figures.uniqueEnquirerCount).toBe(3);
+    expect(figures.funnelStages.find((row) => row.id === 'enquiry')?.count).toBe(3);
+    expect(figures.monthlySpend).toEqual([
+      { month: '2026-01', platform: 'meta', amount: 250, enquiries: 2, costPerEnquiry: 125 },
+      { month: '2026-02', platform: 'google', amount: 90, enquiries: 1, costPerEnquiry: 90 },
+    ]);
+    expect(figures.spendTotal).toBe(350);
+
+    const fromGrid = monthlyEntriesToSpend([
+      { month: 'Mar 2026', amounts: { meta: '1000', google: '' } },
+      { month: '', amounts: { meta: '50' } },
+    ]);
+    expect(fromGrid).toEqual([{ campaign: null, source: 'meta', amount: 1000, date: '2026-03-01' }]);
+    expect(
+      collectSpendRows({
+        unified: '',
+        amounts: {},
+        fromFiles: {},
+        monthly: [{ month: '2026-04', amounts: { google: '25' } }],
+      }),
+    ).toEqual([{ campaign: null, source: 'google', amount: 25, date: '2026-04-01' }]);
+  });
+});
+
+function stageSale(
+  token: string,
+  extra: Partial<{
+    visitDate: string | null;
+    eoiDate: string | null;
+    contractDate: string | null;
+    settlementDate: string | null;
+    isContract: boolean;
+    isSettled: boolean;
+  }>,
+) {
+  return {
+    token,
+    emailToken: null,
+    crmId: null,
+    postcode: '4000',
+    suburb: null,
+    enquiryDate: '2026-01-01',
+    visitDate: extra.visitDate ?? null,
+    eoiDate: extra.eoiDate ?? null,
+    contractDate: extra.contractDate ?? null,
+    settlementDate: extra.settlementDate ?? null,
+    contractValue: null,
+    salesSourceTag: null,
+    isContract: extra.isContract ?? false,
+    isSettled: extra.isSettled ?? false,
+  };
+}

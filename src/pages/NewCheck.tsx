@@ -16,7 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { spotCheckMessage } from '@/lib/spot';
 import { AD_PLATFORMS, type AdPlatformId } from '@/lib/platforms';
 import { recordsFromFile } from '@/lib/spreadsheet';
-import { collectSpendRows, mappedSpendTotal, spendOverlapMessages } from '@/lib/spend-input';
+import { collectSpendRows, mappedSpendTotal, spendOverlapMessages, type MonthlySpendEntry } from '@/lib/spend-input';
 import {
   ADS_GUIDE,
   FILE_ACCEPT,
@@ -62,6 +62,7 @@ export default function NewCheck() {
   const [spendFiles, setSpendFiles] = useState<PlatformFiles>({});
   const [spendAmounts, setSpendAmounts] = useState<PlatformAmounts>({});
   const [unifiedSpend, setUnifiedSpend] = useState('');
+  const [monthlySpend, setMonthlySpend] = useState<MonthlySpendEntry[]>([{ month: '', amounts: {} }]);
   const [showPlatformSpend, setShowPlatformSpend] = useState(false);
   const [adFiles, setAdFiles] = useState<PlatformFiles>({});
   const [spot, setSpot] = useState('');
@@ -80,8 +81,9 @@ export default function NewCheck() {
         hasFile: Object.fromEntries(AD_PLATFORMS.map((p) => [p.id, Boolean(spendFiles[p.id])])) as Partial<
           Record<AdPlatformId, boolean>
         >,
+        monthly: monthlySpend,
       }),
-    [unifiedSpend, spendAmounts, spendFiles],
+    [unifiedSpend, spendAmounts, spendFiles, monthlySpend],
   );
 
   const spendPreview = useMemo(
@@ -98,8 +100,9 @@ export default function NewCheck() {
             return [p.id, amount ? [{ campaign: null, source: p.id, amount, date: null }] : []];
           }),
         ),
+        monthly: monthlySpend,
       }).reduce((s, r) => s + r.amount, 0),
-    [unifiedSpend, spendAmounts, spendFiles],
+    [unifiedSpend, spendAmounts, spendFiles, monthlySpend],
   );
 
   useEffect(() => {
@@ -230,6 +233,7 @@ export default function NewCheck() {
         unified: unifiedSpend,
         amounts: spendAmounts,
         fromFiles: Object.fromEntries(AD_PLATFORMS.map((p) => [p.id, spendFiles[p.id]?.wash?.spend ?? []])),
+        monthly: monthlySpend,
       });
       const ads = collectedAds();
       const figures = buildFigures({
@@ -402,6 +406,7 @@ export default function NewCheck() {
                 placeholder="e.g. 25000"
               />
             </div>
+            <MonthlySpendGrid rows={monthlySpend} onChange={setMonthlySpend} />
             <button
               type="button"
               className="text-sm underline text-muted-foreground"
@@ -647,6 +652,74 @@ function FileCard({
           onMap={onMap}
         />
       )}
+    </div>
+  );
+}
+
+function MonthlySpendGrid({
+  rows,
+  onChange,
+}: {
+  rows: MonthlySpendEntry[];
+  onChange: (rows: MonthlySpendEntry[]) => void;
+}) {
+  function update(index: number, next: MonthlySpendEntry) {
+    onChange(rows.map((row, i) => (i === index ? next : row)));
+  }
+
+  return (
+    <div className="space-y-2 rounded-xl border bg-card p-4">
+      <div className="font-medium">Spend by month</div>
+      <p className="text-xs text-muted-foreground">
+        Use this when the spend file has no month column. One row per month, amounts by channel. Leave it blank if you
+        typed a single total or uploaded a file.
+      </p>
+      <div className="overflow-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="text-xs text-muted-foreground">
+              <th className="py-1 pr-2 font-medium">Month</th>
+              {AD_PLATFORMS.map((p) => (
+                <th key={p.id} className="py-1 pr-2 font-medium">
+                  {p.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                <td className="py-1 pr-2">
+                  <Input
+                    value={row.month}
+                    placeholder="2026-01"
+                    onChange={(e) => update(index, { ...row, month: e.target.value })}
+                  />
+                </td>
+                {AD_PLATFORMS.map((p) => (
+                  <td key={p.id} className="py-1 pr-2">
+                    <Input
+                      inputMode="decimal"
+                      value={row.amounts[p.id] ?? ''}
+                      placeholder="0"
+                      onChange={(e) =>
+                        update(index, { ...row, amounts: { ...row.amounts, [p.id]: e.target.value } })
+                      }
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button
+        type="button"
+        className="text-sm underline text-muted-foreground"
+        onClick={() => onChange([...rows, { month: '', amounts: {} }])}
+      >
+        Add month
+      </button>
     </div>
   );
 }

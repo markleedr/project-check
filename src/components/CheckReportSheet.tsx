@@ -1,6 +1,16 @@
 import type { CSSProperties } from 'react';
 import { BuyerMap } from '@/components/BuyerMap';
-import { funnelMeaning, spendDirectionActions, type ReportFigures } from '@/lib/aggregate';
+import {
+  formatStageDays,
+  funnelFindings,
+  funnelMeaning,
+  funnelTableRows,
+  monthlySpendFindings,
+  monthlyTableRows,
+  spendDirectionActions,
+  timingFindings,
+  type ReportFigures,
+} from '@/lib/aggregate';
 import { rankedAds, whyFindings } from '@/lib/ads-findings';
 import { locationTableRows } from '@/lib/geo/project';
 import {
@@ -44,9 +54,11 @@ export function CheckReportSheet({
   const spendActions = spendDirectionActions(figures);
 
   const card = (value: string | number, label: string) => (
-    <div style={{ border: '1px solid #E4E4E0', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-      <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.015em' }}>{value}</div>
-      <div style={{ fontSize: 8.6, color: '#5A5A57', marginTop: 2 }}>{label}</div>
+    <div style={{ border: '1px solid #E4E4E0', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
+      <div style={{ fontSize: String(value).length > 8 ? 11 : 18, fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.2 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 7.6, color: '#5A5A57', marginTop: 2 }}>{label}</div>
     </div>
   );
 
@@ -94,17 +106,44 @@ export function CheckReportSheet({
 
         <div>
           <div style={sectionLabel}>Campaign Stats</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3mm' }}>
-            {card(figures.enquiryCount.toLocaleString('en-AU'), 'Enquiries')}
-            {card(figures.siteVisitCount.toLocaleString('en-AU'), 'Site visits')}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '2.4mm' }}>
+            {card((figures.uniqueEnquirerCount ?? figures.enquiryCount).toLocaleString('en-AU'), 'Unique enquirers')}
             {card(figures.eoiCount.toLocaleString('en-AU'), 'EOIs')}
             {card(figures.contractCount.toLocaleString('en-AU'), 'Contracts')}
+            {card(settlementKpi(figures), 'Settlements')}
+            {card(formatStageDays(figures.timing.medianDaysEoiToContract ?? null, true), 'Median days EOI to contract')}
           </div>
           <p style={{ fontSize: 8.6, color: '#5A5A57', margin: '2.4mm 0 0' }}>{funnelMeaning(figures)}</p>
           {figures.spendTotal > 0 && (
             <p style={{ fontSize: 8.6, color: '#5A5A57', margin: '1mm 0 0' }}>
               Spend in this check: ${Math.round(figures.spendTotal).toLocaleString('en-AU')}
             </p>
+          )}
+        </div>
+
+        <div style={{ breakInside: 'avoid' }}>
+          <div style={sectionLabel}>Milestone funnel</div>
+          <p style={{ fontSize: 8.2, color: '#8A8A85', margin: '0 0 2mm' }}>
+            Count, conversion from the previous stage, days between stages, and cost (spend divided by count). A missing
+            stage is data needed and is not estimated.
+          </p>
+          <p style={{ fontSize: 9.4, lineHeight: 1.5, margin: '0 0 3mm' }}>{funnelFindings(figures)}</p>
+          {(figures.funnelStages ?? []).length > 0 && (
+            <PrintTable
+              headers={['Stage', 'Count', 'Conversion', 'Median days', 'Average days', 'Cost']}
+              rows={funnelTableRows(figures)}
+            />
+          )}
+        </div>
+
+        <div style={{ breakInside: 'avoid' }}>
+          <div style={sectionLabel}>Spend by month</div>
+          <p style={{ fontSize: 9.4, lineHeight: 1.5, margin: '0 0 3mm' }}>{monthlySpendFindings(figures)}</p>
+          {(figures.monthlySpend ?? []).length > 0 && (
+            <PrintTable
+              headers={['Month', 'Channel', 'Spend', 'Enquiries', 'Cost / enquiry']}
+              rows={monthlyTableRows(figures)}
+            />
           )}
         </div>
 
@@ -159,7 +198,9 @@ export function CheckReportSheet({
                 ? locationFindings(figures)
                 : q.id === 'why'
                   ? whyFindings(figures)
-                  : block?.findings;
+                  : q.id === 'timing'
+                    ? timingFindings(figures)
+                    : block?.findings;
           return (
             <div key={q.id} style={{ breakInside: 'avoid' }}>
               <div style={sectionLabel}>{q.title}</div>
@@ -235,6 +276,12 @@ export function CheckReportSheet({
       </div>
     </div>
   );
+}
+
+function settlementKpi(figures: ReportFigures): string {
+  const stage = figures.funnelStages?.find((row) => row.id === 'settlement');
+  if (!stage || stage.gap) return 'Data needed';
+  return stage.count.toLocaleString('en-AU');
 }
 
 function PrintTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
